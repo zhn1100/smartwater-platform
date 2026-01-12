@@ -135,3 +135,215 @@ def get_users():
             'total': len(users)
         }
     }), 200
+
+@auth_bp.route('/users', methods=['POST'])
+@token_required
+def create_user():
+    """创建新用户（仅管理员）"""
+    # 检查是否是管理员
+    if g.role != 'admin':
+        return jsonify({
+            'error': '权限不足',
+            'message': '需要管理员权限'
+        }), 403
+    
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({
+            'error': '无效请求',
+            'message': '请求体必须是JSON格式'
+        }), 400
+    
+    # 验证必填字段
+    required_fields = ['username', 'password', 'name', 'email', 'role']
+    for field in required_fields:
+        if field not in data or not data[field]:
+            return jsonify({
+                'error': '参数缺失',
+                'message': f'{field}不能为空'
+            }), 400
+    
+    username = data['username']
+    password = data['password']
+    name = data['name']
+    email = data['email']
+    role = data['role']
+    
+    # 验证角色
+    if role not in ['admin', 'user']:
+        return jsonify({
+            'error': '参数错误',
+            'message': '角色必须是admin或user'
+        }), 400
+    
+    # 检查用户名是否已存在
+    conn = AuthConfig.get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
+    existing_user = cursor.fetchone()
+    
+    if existing_user:
+        conn.close()
+        return jsonify({
+            'error': '用户已存在',
+            'message': '用户名已被使用'
+        }), 409
+    
+    # 创建密码哈希
+    import bcrypt
+    password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    
+    # 插入新用户
+    cursor.execute('''
+        INSERT INTO users (username, password_hash, name, email, role, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+    ''', (username, password_hash, name, email, role))
+    
+    user_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    return jsonify({
+        'message': '用户创建成功',
+        'data': {
+            'id': user_id,
+            'username': username,
+            'name': name,
+            'email': email,
+            'role': role
+        }
+    }), 201
+
+@auth_bp.route('/users/<int:user_id>', methods=['DELETE'])
+@token_required
+def delete_user(user_id):
+    """删除用户（仅管理员）"""
+    # 检查是否是管理员
+    if g.role != 'admin':
+        return jsonify({
+            'error': '权限不足',
+            'message': '需要管理员权限'
+        }), 403
+    
+    # 不能删除自己
+    if user_id == g.user_id:
+        return jsonify({
+            'error': '操作不允许',
+            'message': '不能删除自己的账户'
+        }), 400
+    
+    conn = AuthConfig.get_db_connection()
+    cursor = conn.cursor()
+    
+    # 检查用户是否存在
+    cursor.execute('SELECT id, username FROM users WHERE id = ?', (user_id,))
+    user = cursor.fetchone()
+    
+    if not user:
+        conn.close()
+        return jsonify({
+            'error': '未找到',
+            'message': '请求的资源不存在'
+        }), 404
+    
+    # 删除用户
+    cursor.execute('DELETE FROM users WHERE id = ?', (user_id,))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({
+        'message': '用户删除成功',
+        'data': {
+            'id': user_id,
+            'username': user['username']
+        }
+    }), 200
+
+@auth_bp.route('/users/<int:user_id>', methods=['PUT'])
+@token_required
+def update_user(user_id):
+    """更新用户信息（仅管理员）"""
+    # 检查是否是管理员
+    if g.role != 'admin':
+        return jsonify({
+            'error': '权限不足',
+            'message': '需要管理员权限'
+        }), 403
+    
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({
+            'error': '无效请求',
+            'message': '请求体必须是JSON格式'
+        }), 400
+    
+    conn = AuthConfig.get_db_connection()
+    cursor = conn.cursor()
+    
+    # 检查用户是否存在
+    cursor.execute('SELECT id, username FROM users WHERE id = ?', (user_id,))
+    user = cursor.fetchone()
+    
+    if not user:
+        conn.close()
+        return jsonify({
+            'error': '未找到',
+            'message': '请求的资源不存在'
+        }), 404
+    
+    # 构建更新字段
+    update_fields = []
+    update_values = []
+    
+    if 'name' in data:
+        update_fields.append('name = ?')
+        update_values.append(data['name'])
+    
+    if 'email' in data:
+        update_fields.append('email = ?')
+        update_values.append(data['email'])
+    
+    if 'role' in data:
+        if data['role'] not in ['admin', 'user']:
+            conn.close()
+            return jsonify({
+                'error': '参数错误',
+                'message': '角色必须是admin或user'
+            }), 400
+        update_fields.append('role = ?')
+        update_values.append(data['role'])
+    
+    if 'password' in data and data['password']:
+        import bcrypt
+        password_hash = bcrypt.hashpw(data['password'].encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        update_fields.append('password_hash = ?')
+        update_values.append(password_hash)
+    
+    if not update_fields:
+        conn.close()
+        return jsonify({
+            'error': '参数缺失',
+            'message': '没有提供更新字段'
+        }), 400
+    
+    # 添加更新时间
+    update_fields.append('updated_at = datetime("now")')
+    
+    # 执行更新
+    update_values.append(user_id)
+    update_query = f'UPDATE users SET {", ".join(update_fields)} WHERE id = ?'
+    
+    cursor.execute(update_query, update_values)
+    conn.commit()
+    conn.close()
+    
+    return jsonify({
+        'message': '用户更新成功',
+        'data': {
+            'id': user_id,
+            'username': user['username']
+        }
+    }), 200
