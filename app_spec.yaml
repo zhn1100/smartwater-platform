@@ -1,74 +1,45 @@
 name: smartwater-platform
 region: sfo
+
 services:
-- name: backend
-  github:
-    branch: main
-    deploy_on_push: true
-    repo: YOUR_USERNAME/smartwater-platform
-  source_dir: flask_backend
-  build_command: pip install -r requirements.txt
-  run_command: gunicorn --bind 0.0.0.0:8080 --workers 2 --threads 4 --timeout 120 app_with_auth:app
-  http_port: 8080
-  instance_count: 1
-  instance_size_slug: basic-xxs
-  health_check:
-    http_path: /api/health
-    initial_delay_seconds: 60
-    period_seconds: 30
-    timeout_seconds: 10
-    success_threshold: 1
-    failure_threshold: 3
-  envs:
-  - key: FLASK_ENV
-    value: production
-  - key: SECRET_KEY
-    value: ${SECRET_KEY}
-    scope: RUN_TIME
-  - key: JWT_SECRET_KEY
-    value: ${JWT_SECRET_KEY}
-    scope: RUN_TIME
-  - key: DATABASE_URL
-    value: sqlite:///data/monitoring.db
-    scope: RUN_TIME
-  - key: STATIC_FOLDER
-    value: /data/static
-    scope: RUN_TIME
+  - name: backend
+    github:
+      branch: main
+      deploy_on_push: true
+      repo: YOUR_USERNAME/smartwater-platform
+    source_dir: flask_backend
+    build_command: pip install -r requirements.txt
+    run_command: gunicorn --bind 0.0.0.0:8080 --workers 2 app_with_auth:app
+    http_port: 8080
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    envs:
+      - key: FLASK_ENV
+        value: production
+      - key: SECRET_KEY
+        value: ${SECRET_KEY}
+        scope: RUN_TIME
+      - key: JWT_SECRET_KEY
+        value: ${JWT_SECRET_KEY}
+        scope: RUN_TIME
 
-- name: frontend
-  github:
-    branch: main
-    deploy_on_push: true
-    repo: YOUR_USERNAME/smartwater-platform
-  source_dir: frontend
-  build_command: npm install && npm run build
-  run_command: serve -s dist -l 3000
-  http_port: 3000
-  instance_count: 1
-  instance_size_slug: basic-xxs
-  routes:
-  - path: /
-  envs:
-  - key: VITE_API_URL
-    value: ${VITE_API_URL}
-    scope: RUN_TIME
-  - key: NODE_ENV
-    value: production
-    scope: RUN_TIME
-
-# 如果需要持久化存储（用于SQLite数据库）
-static_sites: []
-
-# 如果需要PostgreSQL数据库（取消注释以下部分）
-# databases:
-# - engine: PG
-#   name: smartwater-db
-#   production: false
-#   version: "15"
-#   size: db-s-dev-database
-
-# 自定义域名配置（部署后设置）
-# domains:
-# - domain: smartwater.yourdomain.com
-#   type: PRIMARY
-#   zone: yourdomain.com
+  - name: frontend
+    github:
+      branch: main
+      deploy_on_push: true
+      repo: YOUR_USERNAME/smartwater-platform
+    source_dir: frontend
+    build_command: npm install && npm run build
+    run_command: serve -s dist -l 3000
+    http_port: 3000
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    routes:
+      - path: /
+    envs:
+      - key: VITE_API_URL
+        value: ${VITE_API_URL}
+        scope: RUN_TIME
+      - key: NODE_ENV
+        value: production
+        scope: RUN_TIME
