@@ -386,7 +386,7 @@ import { ref, reactive, onMounted, onBeforeUnmount, computed, onActivated, watch
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
-import { logout, getCurrentUser, getUsers } from '../api/auth.js'
+import { logout, getCurrentUser, getUsers, createUser, deleteUser as deleteUserApi } from '../api/auth.js'
 import {
   getStatistics,
   getMonitoringTypes,
@@ -997,22 +997,8 @@ const saveUser = async () => {
       role: userForm.role
     }
     
-    // 调用API创建用户
-    const response = await fetch('http://localhost:5000/api/users', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-      },
-      body: JSON.stringify(formData)
-    })
-    
-    if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.message || '创建用户失败')
-    }
-    
-    const result = await response.json()
+    // 使用我们创建的API函数
+    await createUser(formData)
     ElMessage.success('用户创建成功')
     userDialog.visible = false
     loadUsers()
@@ -1026,18 +1012,8 @@ const saveUser = async () => {
 
 const deleteUser = async (id) => {
   try {
-    const response = await fetch(`http://localhost:5000/api/users/${id}`, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-      }
-    })
-    
-    if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.message || '删除用户失败')
-    }
-    
+    // 使用我们创建的API函数
+    await deleteUserApi(id)
     ElMessage.success('用户删除成功')
     loadUsers()
   } catch (error) {

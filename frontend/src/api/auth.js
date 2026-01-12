@@ -135,8 +135,44 @@ export async function refreshToken(refreshToken) {
  * @returns {Promise} 用户列表
  */
 export async function getUsers() {
-  const response = await http.get('/api/users')
-  return response.data  // 直接返回用户数组
+  const response = await http.get('/api/auth/users')
+  return response.data.data.users  // 返回用户数组
+}
+
+/**
+ * 创建新用户（仅管理员）
+ * @param {Object} userData - 用户数据
+ * @param {string} userData.username - 用户名
+ * @param {string} userData.password - 密码
+ * @param {string} userData.name - 姓名
+ * @param {string} userData.email - 邮箱
+ * @param {string} userData.role - 角色（admin/user）
+ * @returns {Promise} 创建结果
+ */
+export async function createUser(userData) {
+  const response = await http.post('/api/auth/users', userData)
+  return response.data
+}
+
+/**
+ * 更新用户信息（仅管理员）
+ * @param {number} userId - 用户ID
+ * @param {Object} userData - 要更新的用户数据
+ * @returns {Promise} 更新结果
+ */
+export async function updateUser(userId, userData) {
+  const response = await http.put(`/api/auth/users/${userId}`, userData)
+  return response.data
+}
+
+/**
+ * 删除用户（仅管理员）
+ * @param {number} userId - 用户ID
+ * @returns {Promise} 删除结果
+ */
+export async function deleteUser(userId) {
+  const response = await http.delete(`/api/auth/users/${userId}`)
+  return response.data
 }
 
 /**
