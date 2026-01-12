@@ -145,49 +145,109 @@ def import_inverted_pendulum(conn):
     """导入倒垂线数据"""
     print('导入倒垂线数据...')
     
-    # 读取所有数据
-    df_all = pd.read_excel('../backend/data/倒垂线.xlsx', header=None)
+    # 读取前两行获取仪器和通道信息
+    df_header = pd.read_excel('../backend/data/倒垂线.xlsx', header=None, nrows=2)
     
     # 分析数据结构
     print('  分析倒垂线数据结构...')
     
-    # 第一行是仪器信息，第二行开始是数据
-    # 获取仪器ID
-    instrument_ids = []
-    for i in range(1, len(df_all.columns)):
-        instrument_id = df_all.iloc[0, i]
-        if pd.isna(instrument_id):
-            instrument_id = f'IP_{i}'
-        instrument_ids.append(str(instrument_id))
+    # 第一行：仪器编号 (IP1, nan, IP3, nan, IP5, nan, ...)
+    # 第二行：通道信息 (观测时间, 左右岸CH1, 上下游CH2, 左右岸CH1, 上下游CH2, ...)
     
-    # 从第二行开始读取数据
-    df = pd.read_excel('../backend/data/倒垂线.xlsx', skiprows=1)
+    # 构建仪器-通道映射
+    instrument_channel_map = []
+    last_instrument = None
     
-    # 重命名列
-    new_columns = ['measure_time'] + instrument_ids[:len(df.columns)-1]
-    df.columns = new_columns[:len(df.columns)]
+    # 从第1列开始（第0列是"观测时间"）
+    for col_idx in range(1, len(df_header.columns)):
+        instrument = df_header.iloc[0, col_idx]
+        channel = df_header.iloc[1, col_idx]
+        
+        # 处理仪器编号：如果为空，使用上一个非空仪器
+        if pd.isna(instrument):
+            instrument = last_instrument
+        else:
+            last_instrument = instrument
+        
+        # 如果没有仪器信息，跳过
+        if pd.isna(instrument):
+            continue
+        
+        # 处理通道信息
+        if pd.isna(channel):
+            channel = 'CH1'  # 默认值
+        
+        # 简化通道名称
+        if '左右岸CH1' in str(channel):
+            channel_suffix = 'CH1'
+        elif '上下游CH2' in str(channel):
+            channel_suffix = 'CH2'
+        else:
+            channel_suffix = str(channel)
+        
+        # 组合仪器ID: IP1-CH1, IP1-CH2 等
+        instrument_id = f'{instrument}-{channel_suffix}'
+        instrument_channel_map.append((col_idx, instrument_id))
+    
+    print(f'  发现 {len(instrument_channel_map)} 个仪器通道组合')
+    
+    # 显示映射关系
+    print('  仪器通道映射:')
+    for i, (col_idx, instrument_id) in enumerate(instrument_channel_map[:6]):  # 显示前6个
+        print(f'    列{col_idx} -> {instrument_id}')
+    if len(instrument_channel_map) > 6:
+        print(f'    ... 还有 {len(instrument_channel_map)-6} 个')
+    
+    # 从第三行开始读取数据（跳过前两行表头，使用header=None保持数字索引）
+    df_data = pd.read_excel('../backend/data/倒垂线.xlsx', header=None, skiprows=2)
     
     cursor = conn.cursor()
     count = 0
     
-    for _, row in df.iterrows():
-        measure_time = format_datetime(row['measure_time'])
+    for _, row in df_data.iterrows():
+        measure_time = format_datetime(row[0])  # 第0列是观测时间
         if not measure_time:
             continue
         
-        for i, instrument_id in enumerate(instrument_ids):
-            if i >= len(df.columns) - 1:
-                break
-            col_name = instrument_ids[i]
-            value = clean_value(row[col_name]) if col_name in row else 0.0
+        # 处理每个仪器通道
+        for col_idx, instrument_id in instrument_channel_map:
+            if col_idx >= len(row):
+                continue
+                
+            value = clean_value(row[col_idx])
             
-            cursor.execute('''
-                INSERT INTO measurement (type_id, instrument_id, measure_time, value)
-                VALUES (?, ?, ?, ?)
-            ''', (4, instrument_id, measure_time, value))  # type_id=4 是倒垂线
-            count += 1
+            # 只导入有效数据（非零值）
+            if value != 0.0:
+                cursor.execute('''
+                    INSERT INTO measurement (type_id, instrument_id, measure_time, value)
+                    VALUES (?, ?, ?, ?)
+                ''', (4, instrument_id, measure_time, value))  # type_id=4 是倒垂线
+                count += 1
     
     print(f'  导入 {count} 条倒垂线记录')
+    
+    # 显示统计信息
+    cursor.execute('''
+        SELECT instrument_id, COUNT(*) as cnt 
+        FROM measurement 
+        WHERE type_id = 4 
+        GROUP BY instrument_id 
+        ORDER BY instrument_id
+    ''')
+    samples = cursor.fetchall()
+    print('  仪器统计:')
+    for instrument_id, cnt in samples:
+        print(f'    {instrument_id}: {cnt} 条记录')
+    
+    # 检查是否有CH2数据
+    cursor.execute('''
+        SELECT COUNT(*) as ch2_count 
+        FROM measurement 
+        WHERE type_id = 4 AND instrument_id LIKE '%-CH2'
+    ''')
+    ch2_count = cursor.fetchone()[0]
+    print(f'  CH2通道数据: {ch2_count} 条记录')
+    
     return count
 
 def main():
