@@ -1,0 +1,46 @@
+:root {
+  --brand: #1e63ff;
+  --brand2: #2aa8ff;
+}
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+  background: #f6f9ff;
+}
+
+.app-shell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  height: 56px;
+  background: linear-gradient(90deg, var(--brand), var(--brand2));
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+}
+
+.brand-title {
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.page {
+  flex: 1;
+  display: flex;
+  padding: 12px;
+  gap: 12px;
+}
+
+.card {
+  background: white;
+  border-radius: 14px;
+  box-shadow: 0 6px 20px rgba(30,99,255,0.08);
+  padding: 12px;
+}

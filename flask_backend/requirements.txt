@@ -1,0 +1,9 @@
+Flask
+Flask-CORS
+pandas
+openpyxl
+PyJWT
+cryptography
+python-dotenv
+werkzeug
+bcrypt
