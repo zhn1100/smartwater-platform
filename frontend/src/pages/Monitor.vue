@@ -27,7 +27,7 @@
     </div>
     
     <!-- 左侧浮动窗口：监测概览（使用dataV边框） -->
-    <dv-border-box-8 class="floating-window left-window overview-window">
+    <dv-border-box-8 class="floating-window left-window overview-window" :class="{ 'collapsed': isOverviewCollapsed }">
       <div class="window-header">
         <h3><i class="el-icon-monitor"></i> 监测概览</h3>
         <div class="window-controls">
@@ -35,9 +35,14 @@
             <i class="el-icon-refresh"></i>
             刷新
           </el-button>
+          <el-button size="small" @click="isOverviewCollapsed = !isOverviewCollapsed">
+            <i :class="isOverviewCollapsed ? 'el-icon-full-screen' : 'el-icon-crop'">
+            </i>
+            {{ isOverviewCollapsed ? '展开' : '收起' }}
+          </el-button>
         </div>
       </div>
-      <div class="window-content">
+      <div class="window-content" v-show="!isOverviewCollapsed">
         <!-- 使用dataV数字翻牌器 -->
         <div class="stats-grid">
           <div class="stat-item">
@@ -104,7 +109,7 @@
     </dv-border-box-8>
     
     <!-- 右侧浮动窗口：测点数据（使用dataV边框） -->
-    <dv-border-box-10 class="floating-window right-window points-window">
+    <dv-border-box-10 class="floating-window right-window points-window" :class="{ 'collapsed': isPointsCollapsed }">
       <div class="window-header">
         <h3><i class="el-icon-location-information"></i> 测点数据</h3>
         <div class="window-controls">
@@ -112,9 +117,14 @@
             <el-option label="全部" value="all" />
             <el-option v-for="type in monitoringTypes" :key="type.id" :label="type.name" :value="type.id" />
           </el-select>
+          <el-button size="small" @click="isPointsCollapsed = !isPointsCollapsed">
+            <i :class="isPointsCollapsed ? 'el-icon-full-screen' : 'el-icon-crop'">
+            </i>
+            {{ isPointsCollapsed ? '展开' : '收起' }}
+          </el-button>
         </div>
       </div>
-      <div class="window-content">
+      <div class="window-content" v-show="!isPointsCollapsed">
         <div class="points-list">
           <div 
             v-for="point in filteredPoints" 
@@ -199,11 +209,18 @@
     </dv-border-box-10>
     
     <!-- 底部浮动窗口：最新数据（使用dataV边框） -->
-    <dv-border-box-12 class="floating-window bottom-window latest-data-window">
+    <dv-border-box-12 class="floating-window bottom-window latest-data-window" :class="{ 'collapsed': isLatestDataCollapsed }">
       <div class="window-header">
         <h3><i class="el-icon-s-data"></i> 最新监测数据</h3>
+        <div class="window-controls">
+          <el-button size="small" @click="isLatestDataCollapsed = !isLatestDataCollapsed">
+            <i :class="isLatestDataCollapsed ? 'el-icon-full-screen' : 'el-icon-crop'">
+            </i>
+            {{ isLatestDataCollapsed ? '展开' : '收起' }}
+          </el-button>
+        </div>
       </div>
-      <div class="window-content">
+      <div class="window-content" v-show="!isLatestDataCollapsed">
         <div class="scroll-board-container">
           <dv-scroll-board :config="scrollBoardConfig" />
         </div>
@@ -211,11 +228,18 @@
     </dv-border-box-12>
     
     <!-- 模型控制窗口（使用dataV边框） -->
-    <dv-border-box-13 class="floating-window model-control-window">
+    <dv-border-box-13 class="floating-window model-control-window" :class="{ 'collapsed': isModelControlCollapsed }">
       <div class="window-header">
         <h3><i class="el-icon-map-location"></i> 模型控制</h3>
+        <div class="window-controls">
+          <el-button size="small" @click="isModelControlCollapsed = !isModelControlCollapsed">
+            <i :class="isModelControlCollapsed ? 'el-icon-full-screen' : 'el-icon-crop'">
+            </i>
+            {{ isModelControlCollapsed ? '展开' : '收起' }}
+          </el-button>
+        </div>
       </div>
-      <div class="window-content">
+      <div class="window-content" v-show="!isModelControlCollapsed">
         <div class="model-controls">
           <el-select v-model="selectedModel" placeholder="选择模型" size="mini" @change="switchModel">
             <el-option label="大坝模型1 (dam1.glb)" value="dam1" />
@@ -301,6 +325,12 @@ const selectedPointId = ref(null)
 const selectedPoint = ref(null)
 const pointMeasurements = ref([])
 const isFullscreen = ref(false)
+
+// 窗口状态控制
+const isOverviewCollapsed = ref(false)
+const isPointsCollapsed = ref(false)
+const isLatestDataCollapsed = ref(false)
+const isModelControlCollapsed = ref(false)
 
 // 新增图表相关
 const upstreamYear = ref('2024')
