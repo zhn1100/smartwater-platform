@@ -227,17 +227,31 @@ def delete_user(user_id):
             'message': '需要管理员权限'
         }), 403
     
+    conn = AuthConfig.get_db_connection()
+    cursor = conn.cursor()
+    
+    # 获取当前用户的ID
+    cursor.execute('SELECT id FROM users WHERE username = ?', (g.username,))
+    current_user = cursor.fetchone()
+    
+    if not current_user:
+        conn.close()
+        return jsonify({
+            'error': '用户不存在',
+            'message': '当前用户不存在'
+        }), 404
+    
+    current_user_id = current_user['id']
+    
     # 不能删除自己
-    if user_id == g.user_id:
+    if user_id == current_user_id:
+        conn.close()
         return jsonify({
             'error': '操作不允许',
             'message': '不能删除自己的账户'
         }), 400
     
-    conn = AuthConfig.get_db_connection()
-    cursor = conn.cursor()
-    
-    # 检查用户是否存在
+    # 检查要删除的用户是否存在
     cursor.execute('SELECT id, username FROM users WHERE id = ?', (user_id,))
     user = cursor.fetchone()
     
