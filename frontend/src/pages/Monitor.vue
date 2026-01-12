@@ -59,7 +59,7 @@
           </div>
           <div class="stat-item">
             <dv-digital-flop :config="timeRangeConfig" />
-            <div class="stat-label">数据时间范围</div>
+            <div class="stat-label">最新数据年度</div>
           </div>
         </div>
         
