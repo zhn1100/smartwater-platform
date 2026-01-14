@@ -7,10 +7,37 @@
  */
 
 export const dam3ModelMapping = {
-  // 根据实际模型分块名字映射到仪器ID
-  // 这些是示例映射，需要根据实际模型分块名字调整
+  // 根据测点映射.txt文件的实际映射关系
   
-  // 倒垂线监测点映射 (IP系列)
+  // EX系列映射（根据测点映射.txt）
+  // 只有EX EX1 [239587]是特殊的，对应IP1（因为这个点有两个仪器）
+  'EX EX1 [239587]': 'IP1',
+  // 其他的EX EX2到EX EX10对应EX1-2到EX1-10
+  'EX EX2 [239614]': 'EX1-2',
+  'EX EX3 [239599]': 'EX1-3',
+  'EX EX4 [239611]': 'EX1-4',
+  'EX EX5 [239608]': 'EX1-5',
+  'EX EX6 [239590]': 'EX1-6',
+  'EX EX7 [239593]': 'EX1-7',
+  'EX EX8 [239602]': 'EX1-8',
+  'EX EX9 [239596]': 'EX1-9',
+  'EX EX10 [239584]': 'EX1-10',
+  
+  // IP系列映射（根据测点映射.txt）
+  'IP IP1 [257492]': 'IP1',
+  'IP IP2 [253389]': 'IP2',
+  'IP IP3 [257472]': 'IP3',
+  
+  // PL2 IP6(倒锤线) 映射
+  'PL2 IP6(倒锤线) [268515]': 'IP6-CH1',
+  
+  // 反向映射支持（从仪器ID到模型分块）
+  // 这些是反向映射，用于从列表点击时找到对应的模型分块
+  'IP6': 'PL2 IP6(倒锤线) [268515]',
+  'IP6-CH1': 'PL2 IP6(倒锤线) [268515]',
+  'IP6-CH2': 'PL2 IP6(倒锤线) [268515]',
+  
+  // 其他可能的映射（根据之前的配置保留）
   'IP1监测点': 'IP1',
   'IP1_CH1监测点': 'IP1-CH1',
   'IP1_CH2监测点': 'IP1-CH2',
@@ -20,23 +47,8 @@ export const dam3ModelMapping = {
   'IP3监测点': 'IP3',
   'IP3_CH1监测点': 'IP3-CH1',
   'IP3_CH2监测点': 'IP3-CH2',
-  'IP4监测点': 'IP4',
-  'IP4_CH1监测点': 'IP4-CH1',
-  'IP4_CH2监测点': 'IP4-CH2',
-  'IP5监测点': 'IP5',
-  'IP5_CH1监测点': 'IP5-CH1',
-  'IP5_CH2监测点': 'IP5-CH2',
-  'IP6监测点': 'IP6',
-  'IP6_CH1监测点': 'IP6-CH1',
-  'IP6_CH2监测点': 'IP6-CH2',
-  'IP7_CH1监测点': 'IP7-CH1',
-  'IP7_CH2监测点': 'IP7-CH2',
-  'IP8_CH1监测点': 'IP8-CH1',
-  'IP8_CH2监测点': 'IP8-CH2',
-  'IP9_CH1监测点': 'IP9-CH1',
-  'IP9_CH2监测点': 'IP9-CH2',
   
-  // 引张线监测点映射 (EX系列)
+  // EX系列其他映射
   'EX1-2监测点': 'EX1-2',
   'EX1-3监测点': 'EX1-3',
   'EX1-4监测点': 'EX1-4',
@@ -46,40 +58,6 @@ export const dam3ModelMapping = {
   'EX1-8监测点': 'EX1-8',
   'EX1-9监测点': 'EX1-9',
   'EX1-10监测点': 'EX1-10',
-  'EX1-11监测点': 'EX1-11',
-  
-  'EX2-2监测点': 'EX2-2',
-  'EX2-3监测点': 'EX2-3',
-  'EX2-4监测点': 'EX2-4',
-  'EX2-5监测点': 'EX2-5',
-  'EX2-6监测点': 'EX2-6',
-  'EX2-7监测点': 'EX2-7',
-  
-  'EX3-2监测点': 'EX3-2',
-  'EX3-3监测点': 'EX3-3',
-  'EX3-4监测点': 'EX3-4',
-  'EX3-4′监测点': 'EX3-4′',
-  
-  // 静力水准监测点映射 (TC系列)
-  'TC1-1监测点': 'TC1-1',
-  'TC1-2监测点': 'TC1-2',
-  'TC1-3监测点': 'TC1-3',
-  'TC1-4监测点': 'TC1-4',
-  'TC1-5监测点': 'TC1-5',
-  'TC1-6监测点': 'TC1-6',
-  'TC1-6′监测点': 'TC1-6′',
-  'TC1-7监测点': 'TC1-7',
-  'TC1-8监测点': 'TC1-8',
-  'TC1-9监测点': 'TC1-9',
-  'TC1-10监测点': 'TC1-10',
-  'TC1-11监测点': 'TC1-11',
-  'TC1-12监测点': 'TC1-12',
-  
-  'TC3-1监测点': 'TC3-1',
-  'TC3-2监测点': 'TC3-2',
-  'TC3-3监测点': 'TC3-3',
-  'TC3-4监测点': 'TC3-4',
-  'TC3-5监测点': 'TC3-5',
   
   // 水位监测点
   '上游水位监测点': '上游',
@@ -91,11 +69,6 @@ export const dam3ModelMapping = {
   '基本墙 常规 - 200mm [328370]': 'TC1-1',
   'DL DL6 [316956]': 'IP2-CH1',
   'P Pxdb5-7 [310149]': 'EX2-2',
-  
-  // 默认映射（用于测试）
-  'Test_Block_1': 'IP1-CH1',
-  'Test_Block_2': 'EX1-2',
-  'Test_Block_3': 'TC1-1'
 };
 
 /**
@@ -158,9 +131,32 @@ export function getAllInstrumentIds() {
  * @returns {string[]} 对应的模型分块名字数组（可能有多个分块对应同一个仪器）
  */
 export function getBlockNamesFromInstrumentId(instrumentId) {
-  return Object.entries(dam3ModelMapping)
-    .filter(([_, id]) => id === instrumentId)
-    .map(([blockName]) => blockName);
+  const blockNames = [];
+  
+  // 直接匹配
+  for (const [blockName, id] of Object.entries(dam3ModelMapping)) {
+    if (id === instrumentId) {
+      blockNames.push(blockName);
+    }
+  }
+  
+  // 如果直接匹配没有找到，尝试模糊匹配
+  if (blockNames.length === 0) {
+    const normalizedInstrumentId = instrumentId.toLowerCase().replace(/[-\s]/g, '');
+    
+    for (const [blockName, id] of Object.entries(dam3ModelMapping)) {
+      const normalizedId = id.toLowerCase().replace(/[-\s]/g, '');
+      
+      // 检查是否包含前三个字母（如IP6匹配IP6-CH1）
+      if (normalizedId.includes(normalizedInstrumentId.substring(0, 3)) || 
+          normalizedInstrumentId.includes(normalizedId.substring(0, 3))) {
+        blockNames.push(blockName);
+      }
+    }
+  }
+  
+  // 去重并返回
+  return [...new Set(blockNames)];
 }
 
 export default {

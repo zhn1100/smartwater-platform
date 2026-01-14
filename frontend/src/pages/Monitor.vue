@@ -1122,6 +1122,9 @@ const initCesiumViewer = () => {
     sceneModePicker: false,
     navigationHelpButton: false,
     fullscreenButton: false,
+    // 禁用selectionIndicator和infoBox
+    selectionIndicator: false,
+    infoBox: false,
     terrainProvider: new Cesium.EllipsoidTerrainProvider(),
     imageryProvider: new Cesium.UrlTemplateImageryProvider({
       url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
@@ -1556,13 +1559,65 @@ const addPointsToCesium = () => {
 }
 
 const flyToPoint = (point) => {
-  if (!viewer || !pointEntities.has(point.id)) return
+  if (!viewer) return
   
-  const entity = pointEntities.get(point.id)
-  viewer.flyTo(entity, {
-    duration: 1.5,
-    offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-45), 200)
-  })
+  // 根据仪器ID获取对应的模型分块名字
+  const blockNames = getBlockNamesFromInstrumentId(point.instrument_id)
+  
+  if (blockNames.length > 0 && currentModelEntity && selectedModel.value === 'dam3') {
+    // 如果有对应的模型分块，显示信息
+    const blockName = blockNames[0] // 使用第一个匹配的分块
+    
+    // 更新显示
+    hoveredBlock.value = blockName
+    selectedBlock.value = blockName
+    selectedInstrumentIdFromBlock.value = point.instrument_id
+    
+    // 飞向模型，但调整视角以便更好地观察
+    // 使用模型的位置，但调整高度和角度
+    const modelPosition = Cesium.Cartesian3.fromDegrees(118.7460, 32.0600, 30.0)
+    
+    // 根据分块类型调整视角
+    let height = 500 // 默认高度
+    let pitch = -60 // 默认俯角
+    
+    if (blockName.includes('EX')) {
+      // EX系列分块：稍微低一点，角度更陡
+      height = 300
+      pitch = -75
+    } else if (blockName.includes('IP')) {
+      // IP系列分块：中等高度
+      height = 400
+      pitch = -70
+    }
+    
+    // 飞向模型上方，向下看
+    viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(118.7460, 32.0600, height),
+      orientation: {
+        heading: Cesium.Math.toRadians(0),
+        pitch: Cesium.Math.toRadians(pitch), // 向下看的角度
+        roll: 0
+      },
+      duration: 1.5,
+      offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(pitch), 100)
+    })
+    
+    ElMessage.success(`已定位到仪器: ${point.instrument_id} (对应分块: ${blockName})`)
+  } else {
+    // 如果没有对应的模型分块，或者不是dam3模型，飞向默认位置
+    viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(118.7460, 32.0600, 1000),
+      orientation: {
+        heading: Cesium.Math.toRadians(0),
+        pitch: Cesium.Math.toRadians(-45),
+        roll: 0
+      },
+      duration: 1.5
+    })
+    
+    ElMessage.info(`已选择仪器: ${point.instrument_id}`)
+  }
 }
 
 const resetView = () => {
