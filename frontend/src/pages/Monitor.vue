@@ -113,7 +113,7 @@
       <div class="window-header">
         <h3><i class="el-icon-location-information"></i> 测点数据</h3>
         <div class="window-controls">
-          <el-select v-model="selectedPointType" placeholder="类型筛选" size="mini" style="width: 100px;">
+          <el-select v-model="selectedPointType" placeholder="类型筛选" size="small" style="width: 100px;">
             <el-option label="全部" value="all" />
             <el-option v-for="type in monitoringTypes" :key="type.id" :label="type.name" :value="type.id" />
           </el-select>
@@ -153,7 +153,7 @@
             <div class="chart-header">
               <h4>最新数据趋势</h4>
               <div class="chart-controls">
-                <el-radio-group v-model="trendTimeRange" size="mini">
+                <el-radio-group v-model="trendTimeRange" size="small">
                   <el-radio-button label="month">一个月</el-radio-button>
                   <el-radio-button label="year">一年</el-radio-button>
                 </el-radio-group>
@@ -175,7 +175,7 @@
             <div class="section-header">
               <h4>历史数据</h4>
               <div class="section-controls">
-                <el-button size="mini" @click="exportData" type="primary">
+                <el-button size="small" @click="exportData" type="primary">
                   <i class="el-icon-download"></i>
                   导出CSV
                 </el-button>
@@ -184,7 +184,7 @@
             
             <!-- 最近二十条数据表格 -->
             <div class="measurements-table">
-              <el-table :data="pointMeasurements" size="mini" height="200">
+              <el-table :data="pointMeasurements" size="small" height="200">
                 <el-table-column prop="measure_time" label="测量时间" width="150" />
                 <el-table-column prop="type_name" label="监测类型" width="100" />
                 <el-table-column prop="instrument_id" label="仪器编号" width="100" />
@@ -241,13 +241,13 @@
       </div>
       <div class="window-content" v-show="!isModelControlCollapsed">
         <div class="model-controls">
-          <el-select v-model="selectedModel" placeholder="选择模型" size="mini" @change="switchModel">
+          <el-select v-model="selectedModel" placeholder="选择模型" size="small" @change="switchModel">
             <el-option label="大坝模型1 (dam1.glb)" value="dam1" />
             <el-option label="大坝模型2 (dam2.glb)" value="dam2" />
             <el-option label="大坝模型3 (dam3.glb)" value="dam3" />
           </el-select>
-          <el-button size="mini" @click="resetView">重置视角</el-button>
-          <el-button size="mini" @click="toggleFullscreen">
+          <el-button size="small" @click="resetView">重置视角</el-button>
+          <el-button size="small" @click="toggleFullscreen">
             <i class="el-icon-full-screen"></i>
             全屏
           </el-button>
@@ -260,6 +260,35 @@
           <div class="info-item">
             <span class="label">模型格式：</span>
             <span class="value">{{ modelFormats[selectedModel] }}</span>
+          </div>
+        </div>
+        
+        <!-- dam3模型分块交互信息 -->
+        <div v-if="selectedModel === 'dam3'" class="block-interaction-info">
+          <div class="info-section">
+            <h4><i class="el-icon-mouse"></i> 分块交互</h4>
+            <div class="info-item">
+              <span class="label">悬停分块：</span>
+              <span class="value" :class="{ 'highlight': hoveredBlock }">
+                {{ hoveredBlock || '无' }}
+              </span>
+            </div>
+            <div class="info-item">
+              <span class="label">选中分块：</span>
+              <span class="value" :class="{ 'highlight': selectedBlock }">
+                {{ selectedBlock || '无' }}
+              </span>
+            </div>
+            <div v-if="selectedInstrumentIdFromBlock" class="info-item">
+              <span class="label">对应仪器：</span>
+              <span class="value instrument-id">
+                {{ selectedInstrumentIdFromBlock }}
+              </span>
+            </div>
+            <div class="interaction-hint">
+              <i class="el-icon-info"></i>
+              提示：鼠标悬停可高亮分块，点击分块可查看对应测点数据
+            </div>
           </div>
         </div>
       </div>
@@ -425,10 +454,24 @@ const scrollBoardConfig = reactive({
   align: ['center', 'center', 'center', 'center']
 })
 
+// 导入模型映射配置
+import { 
+  getInstrumentIdFromBlockName, 
+  getBlockNamesFromInstrumentId 
+} from '../config/model-mapping.js'
+
 // Cesium相关
 let viewer = null
 let currentModelEntity = null
 let pointEntities = new Map()
+
+// 模型分块交互相关
+const hoveredBlock = ref('')
+const selectedBlock = ref('')
+const selectedInstrumentIdFromBlock = ref('')
+let mouseMoveHandler = null
+let clickHandler = null
+let highlightedFeature = null
 
 // 计算属性
 const filteredPoints = computed(() => {
@@ -1133,6 +1176,370 @@ const switchModel = () => {
   })
   
   viewer.zoomTo(currentModelEntity)
+  
+  // 如果是dam3模型，启用分块交互
+  if (selectedModel.value === 'dam3') {
+    // 等待模型加载完成后设置交互
+    setTimeout(() => {
+      setupModelBlockInteraction()
+    }, 1000)
+  } else {
+    // 如果是其他模型，移除交互处理器
+    removeModelBlockInteraction()
+  }
+}
+
+// 设置dam3模型分块交互
+const setupModelBlockInteraction = () => {
+  if (!viewer || !currentModelEntity) return
+  
+  // 移除旧的处理器
+  removeModelBlockInteraction()
+  
+  // 直接设置基础交互
+  setupBasicInteraction()
+  
+  // 记录模型信息用于调试
+  const model = currentModelEntity.model
+  if (model && model._runtime && model._runtime._model) {
+    const cesiumModel = model._runtime._model
+    console.log('Cesium模型对象:', cesiumModel)
+    
+    // 检查是否有节点信息
+    if (cesiumModel._nodesByName) {
+      console.log('模型节点列表:', Object.keys(cesiumModel._nodesByName))
+      console.log('节点数量:', Object.keys(cesiumModel._nodesByName).length)
+    }
+  }
+}
+
+// 设置基础交互
+const setupBasicInteraction = () => {
+  // 鼠标移动处理器：悬停高亮
+  mouseMoveHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
+  mouseMoveHandler.setInputAction((movement) => {
+    const pick = viewer.scene.pick(movement.endPosition)
+    
+    // 1. 验证pick及其detail结构
+    if (Cesium.defined(pick) && pick.detail && pick.detail.node) {
+      console.log('pick对象:', pick)
+      console.log('pick.detail:', pick.detail)
+      console.log('pick.detail.node:', pick.detail.node)
+      
+      // 2. 关键：根据你的日志，属性名是_name而不是name
+      const rawName = pick.detail.node._name || pick.detail.node.name
+      
+      if (rawName) {
+        // 确保是字符串类型，防止getNode报错
+        const objectName = String(rawName)
+        console.log('✅ 成功识别到子物体:', objectName)
+        
+        // 更新悬停显示
+        hoveredBlock.value = objectName
+        
+        // 3. 执行高亮操作
+        try {
+          // 移除之前的高亮
+          if (highlightedFeature) {
+            highlightedFeature.color = Cesium.Color.WHITE
+            highlightedFeature = null
+          }
+          
+          // 高亮当前节点
+          if (pick.primitive && pick.primitive instanceof Cesium.Model) {
+            const model = pick.primitive
+            if (model.getNode) {
+              // 确保传递给getNode的是字符串
+              const targetNode = model.getNode(objectName)
+              
+              if (targetNode) {
+                // 尝试设置节点颜色
+                try {
+                  targetNode.color = Cesium.Color.YELLOW.withAlpha(0.5)
+                  highlightedFeature = targetNode
+                } catch (colorError) {
+                  console.log('设置节点颜色失败，尝试其他高亮方式:', colorError)
+                  // 记录节点信息用于后续处理
+                  highlightedFeature = targetNode
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error('高亮执行失败:', error)
+        }
+      } else {
+        // 没有节点名称信息
+        console.log('❌ pick.detail.node._name未定义')
+        hoveredBlock.value = '模型表面'
+        
+        // 移除高亮
+        if (highlightedFeature) {
+          highlightedFeature.color = Cesium.Color.WHITE
+          highlightedFeature = null
+        }
+      }
+    } else {
+      // 没选中任何物体或没有detail信息
+      console.log('❌ pick未定义或没有detail或没有node')
+      hoveredBlock.value = ''
+      
+      // 移除高亮
+      if (highlightedFeature) {
+        highlightedFeature.color = Cesium.Color.WHITE
+        highlightedFeature = null
+      }
+    }
+  }, Cesium.ScreenSpaceEventType.MOUSE_MOVE)
+  
+  // 鼠标点击处理器：选择分块
+  clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
+  clickHandler.setInputAction((movement) => {
+    const pick = viewer.scene.pick(movement.position)
+    
+    // 1. 验证pick及其detail结构
+    if (Cesium.defined(pick) && pick.detail && pick.detail.node) {
+      console.log('点击pick对象:', pick)
+      console.log('点击pick.detail:', pick.detail)
+      
+      // 2. 关键：根据你的日志，属性名是_name而不是name
+      const rawName = pick.detail.node._name || pick.detail.node.name
+      
+      if (rawName) {
+        // 确保是字符串类型，防止getNode报错
+        const objectName = String(rawName)
+        console.log('✅ 点击子物体名称:', objectName)
+        
+        // 更新选中显示
+        selectedBlock.value = objectName
+        
+        // 根据分块名字获取仪器ID
+        const instrumentId = getInstrumentIdFromBlockName(objectName)
+        selectedInstrumentIdFromBlock.value = instrumentId
+        
+        if (instrumentId) {
+          // 找到对应的测点
+          const point = instruments.value.find(p => p.instrument_id === instrumentId)
+          if (point) {
+            // 选择该测点并加载数据
+            selectPoint(point)
+            ElMessage.success(`已选择分块: ${objectName} → 仪器: ${instrumentId}`)
+          } else {
+            ElMessage.warning(`找到分块: ${objectName}，但未找到对应的测点仪器: ${instrumentId}`)
+          }
+        } else {
+          ElMessage.warning(`找到分块: ${objectName}，但未找到对应的仪器映射`)
+        }
+      } else {
+        // 没有节点名称信息
+        console.log('❌ 点击pick.detail.node._name未定义')
+        selectedBlock.value = '点击了模型表面'
+        ElMessage.info('点击了模型表面，请尝试点击模型的不同部分')
+      }
+    } else {
+      // 没选中任何物体或没有detail信息
+      console.log('❌ 点击pick未定义或没有detail或没有node')
+      selectedBlock.value = '点击了模型表面'
+      ElMessage.info('点击了模型表面，请尝试点击模型的不同部分')
+    }
+  }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
+}
+
+// 移除模型分块交互
+const removeModelBlockInteraction = () => {
+  // 移除高亮
+  if (highlightedFeature) {
+    highlightedFeature.color = Cesium.Color.WHITE
+    highlightedFeature = null
+  }
+  
+  // 移除处理器
+  if (mouseMoveHandler) {
+    mouseMoveHandler.destroy()
+    mouseMoveHandler = null
+  }
+  
+  if (clickHandler) {
+    clickHandler.destroy()
+    clickHandler = null
+  }
+  
+  // 清空显示
+  hoveredBlock.value = ''
+}
+
+// 处理模型悬停
+const handleModelHover = (picked) => {
+  if (!picked || !picked.primitive) {
+    // 没有悬停在模型上
+    hoveredBlock.value = ''
+    return
+  }
+  
+  // 尝试获取模型节点信息
+  const blockName = getModelNodeName(picked)
+  
+  if (blockName) {
+    hoveredBlock.value = blockName
+  } else {
+    hoveredBlock.value = '模型表面'
+  }
+}
+
+// 处理模型点击
+const handleModelClick = (picked) => {
+  if (!picked || !picked.primitive) {
+    return
+  }
+  
+  // 尝试获取模型节点信息
+  const blockName = getModelNodeName(picked)
+  
+  if (blockName) {
+    selectedBlock.value = blockName
+    
+    // 根据分块名字获取仪器ID
+    const instrumentId = getInstrumentIdFromBlockName(blockName)
+    selectedInstrumentIdFromBlock.value = instrumentId
+    
+    if (instrumentId) {
+      // 找到对应的测点
+      const point = instruments.value.find(p => p.instrument_id === instrumentId)
+      if (point) {
+        // 选择该测点并加载数据
+        selectPoint(point)
+        ElMessage.success(`已选择分块: ${blockName} → 仪器: ${instrumentId}`)
+      } else {
+        ElMessage.warning(`找到分块: ${blockName}，但未找到对应的测点仪器: ${instrumentId}`)
+      }
+    } else {
+      ElMessage.warning(`找到分块: ${blockName}，但未找到对应的仪器映射`)
+    }
+  } else {
+    selectedBlock.value = '点击了模型表面'
+    ElMessage.info('点击了模型表面，请尝试点击模型的不同部分')
+  }
+}
+
+// 从pick结果中获取模型节点名字
+const getModelNodeName = (picked) => {
+  if (!picked || !picked.primitive) {
+    return null
+  }
+  
+  const feature = picked.primitive
+  
+  // 检查是否是Model对象
+  if (feature._nodesByName) {
+    // 这是一个Model对象，尝试获取点击的节点
+    console.log('Model对象，节点列表:', Object.keys(feature._nodesByName))
+    
+    // 尝试直接访问pick的详细信息
+    console.log('pick详细信息:', picked)
+    
+    // 检查pick是否有id属性
+    if (picked.id) {
+      console.log('pick.id:', picked.id)
+      console.log('pick.id类型:', typeof picked.id)
+      
+      // 尝试从id中提取节点信息
+      if (typeof picked.id === 'object') {
+        // 检查id对象是否有name属性
+        if (picked.id._name) {
+          return String(picked.id._name)
+        } else if (picked.id.name) {
+          return String(picked.id.name)
+        } else if (picked.id.id) {
+          return String(picked.id.id)
+        }
+      } else if (typeof picked.id === 'string') {
+        return picked.id
+      }
+    }
+    
+    // 检查pick是否有其他属性
+    if (picked.primitive._name) {
+      return String(picked.primitive._name)
+    } else if (picked.primitive.name) {
+      return String(picked.primitive.name)
+    }
+    
+    // 如果无法获取具体节点，尝试从节点列表中查找可能相关的节点
+    // 查找包含"EX"、"IP"、"TC"等关键词的节点（这些可能是仪器相关的节点）
+    const nodeNames = Object.keys(feature._nodesByName)
+    const instrumentNodes = nodeNames.filter(name => 
+      name.includes('EX') || name.includes('IP') || name.includes('TC') || 
+      name.includes('P') || name.includes('UPR') || name.includes('UP')
+    )
+    
+    if (instrumentNodes.length > 0) {
+      // 返回第一个仪器相关节点作为示例
+      return instrumentNodes[0]
+    }
+    
+    // 返回第一个节点作为示例
+    if (nodeNames.length > 0) {
+      return nodeNames[0]
+    }
+    
+    // 如果无法获取具体节点，返回模型信息
+    return `模型 (${nodeNames.length}个节点)`
+  }
+  
+  // 如果不是Model对象，尝试其他方式获取名字
+  return getBlockNameFromFeature(feature)
+}
+
+// 从Cesium特征中获取分块名字（简化版）
+const getBlockNameFromFeature = (feature) => {
+  if (!feature) {
+    return null
+  }
+  
+  // 尝试不同的方式获取分块名字
+  let blockName = null
+  
+  // 方式1: 检查是否有name属性
+  if (feature._name) {
+    if (typeof feature._name === 'object') {
+      try {
+        blockName = JSON.stringify(feature._name)
+      } catch {
+        blockName = String(feature._name)
+      }
+    } else {
+      blockName = String(feature._name)
+    }
+  }
+  
+  // 方式2: 检查是否有name属性
+  if (!blockName && feature.name) {
+    if (typeof feature.name === 'object') {
+      try {
+        blockName = JSON.stringify(feature.name)
+      } catch {
+        blockName = String(feature.name)
+      }
+    } else {
+      blockName = String(feature.name)
+    }
+  }
+  
+  // 方式3: 从feature的id属性获取
+  if (!blockName && feature.id) {
+    blockName = String(feature.id)
+  }
+  
+  // 如果blockName是对象，尝试转换为字符串
+  if (blockName && typeof blockName === 'object') {
+    try {
+      blockName = JSON.stringify(blockName)
+    } catch {
+      blockName = String(blockName)
+    }
+  }
+  
+  return blockName
 }
 
 const addPointsToCesium = () => {

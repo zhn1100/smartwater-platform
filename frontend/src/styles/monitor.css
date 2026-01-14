@@ -675,3 +675,104 @@
     height: 150px;
   }
 }
+
+/* 模型分块交互信息样式 */
+.block-interaction-info {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(64, 158, 255, 0.2);
+}
+
+.block-interaction-info .info-section {
+  background: rgba(11, 25, 55, 0.7);
+  border-radius: 8px;
+  padding: 12px;
+  border: 1px solid rgba(64, 158, 255, 0.2);
+}
+
+.block-interaction-info h4 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: #66b1ff;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.block-interaction-info h4 i {
+  font-size: 16px;
+}
+
+.block-interaction-info .info-item {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 13px;
+  padding: 4px 0;
+}
+
+.block-interaction-info .info-item:last-child {
+  margin-bottom: 0;
+}
+
+.block-interaction-info .info-item .label {
+  color: #a0cfff;
+  font-weight: 500;
+}
+
+.block-interaction-info .info-item .value {
+  color: #fff;
+  font-weight: 500;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.block-interaction-info .info-item .value.highlight {
+  color: #FFD700; /* 金色高亮 */
+  font-weight: 600;
+  text-shadow: 0 0 8px rgba(255, 215, 0, 0.3);
+}
+
+.block-interaction-info .info-item .value.instrument-id {
+  color: #67c23a; /* 绿色 */
+  background: rgba(103, 194, 58, 0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+}
+
+.block-interaction-info .interaction-hint {
+  margin-top: 12px;
+  padding: 8px;
+  background: rgba(255, 215, 0, 0.1);
+  border: 1px solid rgba(255, 215, 0, 0.3);
+  border-radius: 6px;
+  font-size: 12px;
+  color: #FFD700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.block-interaction-info .interaction-hint i {
+  font-size: 14px;
+}
+
+/* 悬停和点击效果动画 */
+@keyframes highlight-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.4); }
+  70% { box-shadow: 0 0 0 6px rgba(255, 215, 0, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0); }
+}
+
+.block-interaction-info .info-section {
+  transition: all 0.3s ease;
+}
+
+.block-interaction-info .info-section:hover {
+  border-color: rgba(255, 215, 0, 0.5);
+  animation: highlight-pulse 2s infinite;
+}
