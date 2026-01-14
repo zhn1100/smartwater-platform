@@ -307,7 +307,8 @@ import {
   getStatistics, 
   getMeasurements, 
   getMonitoringTypes,
-  getInstruments
+  getInstruments,
+  getMeasurementsSummary
 } from '../api/monitoring_new.js'
 
 // 导入dataV组件
@@ -561,47 +562,68 @@ const loadMonitoringTypes = async () => {
 
 const loadInstruments = async () => {
   try {
-    const data = await getInstruments()
-    // API返回的是按instrument_id分组的仪器列表
-    // 我们需要确保每个仪器都有正确的字段
-    const instrumentsWithLatestValue = []
+    // 1. 获取仪器列表
+    const instrumentData = await getInstruments()
     
-    for (const item of data) {
-      try {
-        // 获取每个仪器的最新一条数据
-        const latestData = await getMeasurements({
-          instrument_id: item.instrument_id,
-          limit: 1,
-          order_by: 'measure_time desc'
-        })
+    // 2. 一次性获取250条最新数据（按时间逆序）
+    const latestMeasurements = await getMeasurements({
+      limit: 250,
+      order_by: 'measure_time desc'
+    })
+    
+    // 3. 创建仪器映射，用于快速查找
+    const instrumentMap = new Map()
+    instrumentData.forEach(item => {
+      instrumentMap.set(item.instrument_id, {
+        id: instrumentMap.size + 1,
+        instrument_id: item.instrument_id,
+        name: `仪器 ${item.instrument_id}`,
+        type_id: item.type_id,
+        type_name: item.type_name,
+        latest_value: null, // 初始化为null
+        unit: item.unit || 'mm'
+      })
+    })
+    
+    // 4. 从最新数据中提取每个仪器的最新值
+    const seenInstruments = new Set()
+    for (const measurement of latestMeasurements) {
+      const instrumentId = measurement.instrument_id
+      
+      // 如果这个仪器还没有设置最新值，并且存在于仪器列表中
+      if (!seenInstruments.has(instrumentId) && instrumentMap.has(instrumentId)) {
+        const instrument = instrumentMap.get(instrumentId)
+        instrument.latest_value = measurement.value
+        seenInstruments.add(instrumentId)
         
-        instrumentsWithLatestValue.push({
-          id: instrumentsWithLatestValue.length + 1, // 为前端生成一个唯一的ID
-          instrument_id: item.instrument_id, // 这是API返回的仪器ID
-          name: `仪器 ${item.instrument_id}`, // 生成显示名称
-          type_id: item.type_id,
-          type_name: item.type_name,
-          latest_value: latestData.length > 0 ? latestData[0].value : null,
-          unit: item.unit || 'mm' // 使用API返回的单位或默认值
-        })
-      } catch (error) {
-        console.error(`获取仪器 ${item.instrument_id} 最新数据失败:`, error)
-        // 如果获取失败，仍然添加仪器但没有最新值
-        instrumentsWithLatestValue.push({
-          id: instrumentsWithLatestValue.length + 1,
-          instrument_id: item.instrument_id,
-          name: `仪器 ${item.instrument_id}`,
-          type_id: item.type_id,
-          type_name: item.type_name,
-          latest_value: null,
-          unit: item.unit || 'mm'
-        })
+        // 如果所有仪器都找到了最新值，可以提前退出
+        if (seenInstruments.size === instrumentMap.size) {
+          break
+        }
       }
     }
     
-    instruments.value = instrumentsWithLatestValue
+    // 5. 转换为数组并设置到响应式变量
+    instruments.value = Array.from(instrumentMap.values())
+    
+    console.log(`加载了 ${instruments.value.length} 个仪器，其中 ${seenInstruments.size} 个有最新数据`)
   } catch (error) {
     console.error('加载仪器列表失败:', error)
+    // 如果批量获取失败，回退到原始方法（只获取仪器列表，不获取最新值）
+    try {
+      const instrumentData = await getInstruments()
+      instruments.value = instrumentData.map((item, index) => ({
+        id: index + 1,
+        instrument_id: item.instrument_id,
+        name: `仪器 ${item.instrument_id}`,
+        type_id: item.type_id,
+        type_name: item.type_name,
+        latest_value: null,
+        unit: item.unit || 'mm'
+      }))
+    } catch (fallbackError) {
+      console.error('回退方法也失败:', fallbackError)
+    }
   }
 }
 
@@ -686,7 +708,21 @@ const renderUsageChart = async (pointId) => {
   if (!usageChart) return
   
   try {
-    // 获取2018-2024年的所有数据
+    // 获取当前选中的测点信息，判断是否是水位类型
+    const point = instruments.value.find(p => p.instrument_id === pointId)
+    const isWaterLevel = point && (point.type_name === '水位' || point.instrument_id === '上游' || point.instrument_id === '下游')
+    
+    // 根据仪器类型设置不同的请求参数
+    const limit = isWaterLevel ? 2562 : 400 // 水位类型请求2562条，其他类型请求400条
+    
+    // 一次性获取2018-2024年的所有数据
+    const allData = await getMeasurements({
+      instrument_id: pointId,
+      limit: limit,
+      order_by: 'measure_time desc' // 按时间逆序，获取最新数据
+    })
+    
+    // 按年份统计数据量
     const years = ['2018', '2019', '2020', '2021', '2022', '2023', '2024']
     const yearData = {}
     
@@ -695,27 +731,15 @@ const renderUsageChart = async (pointId) => {
       yearData[year] = 0
     })
     
-    // 为每个年份获取数据
-    for (const year of years) {
-      try {
-        const startTime = `${year}-01-01 00:00:00`
-        const endTime = `${year}-12-31 23:59:59`
-        
-        // 获取该年份的数据
-        const yearDataResponse = await getMeasurements({
-          instrument_id: pointId,
-          start_time: startTime,
-          end_time: endTime,
-          limit: 1000 // 水位等数据一年不止100次采集，设为1000
-        })
-        
-        // 统计实际数量
-        yearData[year] = yearDataResponse.length
-      } catch (error) {
-        console.error(`获取${year}年数据失败:`, error)
-        yearData[year] = 0
+    // 统计每个年份的数据量
+    allData.forEach(item => {
+      const measureTime = new Date(item.measure_time)
+      const year = measureTime.getFullYear().toString()
+      
+      if (yearData.hasOwnProperty(year)) {
+        yearData[year]++
       }
-    }
+    })
     
     // 准备图表数据
     const values = years.map(year => yearData[year])
@@ -852,45 +876,181 @@ const renderTrendChart = async (pointId) => {
   if (!trendChart) return
   
   try {
-    // 数据只到2024年，所以我们应该从2024年往前计算
-    const endDate = new Date('2024-12-31') // 数据截止到2024年底
-    const startDate = new Date('2024-12-31')
-    
-    // 根据选择的时间范围设置开始时间
     if (trendTimeRange.value === 'month') {
-      startDate.setDate(startDate.getDate() - 30) // 最近30天
-    } else {
-      startDate.setFullYear(startDate.getFullYear() - 1) // 最近一年
-    }
-    
-    const startTime = startDate.toISOString().replace('T', ' ').substring(0, 19)
-    const endTime = endDate.toISOString().replace('T', ' ').substring(0, 19)
-    
-    // 获取数据 - API会自动按时间排序
-    const recentData = await getMeasurements({
-      instrument_id: pointId,
-      start_time: startTime,
-      end_time: endTime,
-      limit: 100 // 获取最多100条数据
-    })
-    
-    // 如果没有数据，显示空图表而不是模拟数据
-    if (!recentData || recentData.length === 0) {
+      // 最新一个月数据趋势：获取30条最新数据，然后筛选最近一个月内的数据
+      const recentData = await getMeasurements({
+        instrument_id: pointId,
+        limit: 30,
+        order_by: 'measure_time desc'
+      })
+      
+      // 如果没有数据，显示空图表
+      if (!recentData || recentData.length === 0) {
+        trendChart.setOption({
+          title: {
+            text: '最新一个月数据趋势',
+            subtext: '暂无数据',
+            left: 'center',
+            textStyle: {
+              fontSize: 12,
+              color: '#a0cfff'
+            }
+          },
+          xAxis: {
+            type: 'category',
+            data: [],
+            axisLabel: {
+              color: '#a0cfff'
+            }
+          },
+          yAxis: {
+            type: 'value',
+            name: '测量值',
+            nameTextStyle: {
+              color: '#a0cfff'
+            },
+            min: 0,
+            max: 100
+          },
+          series: [{
+            name: '数据趋势',
+            type: 'line',
+            data: []
+          }]
+        })
+        return
+      }
+      
+      // 获取最后一个数据的时间（最新的数据）
+      const lastDataTime = new Date(recentData[0].measure_time)
+      
+      // 计算一个月前的时间（相对于最后一个数据）
+      const oneMonthAgo = new Date(lastDataTime)
+      oneMonthAgo.setDate(lastDataTime.getDate() - 30)
+      
+      // 筛选离最后一个数据30天以内的数据
+      const filteredData = recentData.filter(item => {
+        const measureTime = new Date(item.measure_time)
+        return measureTime >= oneMonthAgo
+      })
+      
+      // 如果没有最近一个月的数据，显示空图表
+      if (filteredData.length === 0) {
+        trendChart.setOption({
+          title: {
+            text: '最新一个月数据趋势',
+            subtext: '最近一个月内无数据',
+            left: 'center',
+            textStyle: {
+              fontSize: 12,
+              color: '#a0cfff'
+            }
+          },
+          xAxis: {
+            type: 'category',
+            data: [],
+            axisLabel: {
+              color: '#a0cfff'
+            }
+          },
+          yAxis: {
+            type: 'value',
+            name: '测量值',
+            nameTextStyle: {
+              color: '#a0cfff'
+            },
+            min: 0,
+            max: 100
+          },
+          series: [{
+            name: '数据趋势',
+            type: 'line',
+            data: []
+          }]
+        })
+        return
+      }
+      
+      // 按时间排序（从早到晚）
+      const sortedData = [...filteredData].sort((a, b) => 
+        new Date(a.measure_time) - new Date(b.measure_time)
+      )
+      
+      // 准备图表数据
+      const times = sortedData.map(item => {
+        const date = new Date(item.measure_time)
+        return `${date.getMonth() + 1}/${date.getDate()}`
+      })
+      
+      const values = sortedData.map(item => parseFloat(item.value.toFixed(2)))
+      
+      // 计算数据范围，设置合理的y轴范围
+      const validValues = values.filter(v => !isNaN(v))
+      const minValue = validValues.length > 0 ? Math.min(...validValues) : 0
+      const maxValue = validValues.length > 0 ? Math.max(...validValues) : 100
+      
+      // 根据数据类型设置y轴范围，支持负数
+      let yMin = 0
+      let yMax = 100
+      
+      if (validValues.length > 0) {
+        // 处理负数情况
+        if (minValue < 0) {
+          // 如果有负数，确保y轴包含负数
+          const range = maxValue - minValue
+          const padding = range * 0.1 // 10%的余量
+          yMin = Math.floor(minValue - padding)
+          yMax = Math.ceil(maxValue + padding)
+        } else {
+          // 没有负数的情况
+          // 如果数据范围很小（如静力水准，小于10），设置较小的范围
+          if (maxValue < 10) {
+            yMin = 0
+            yMax = Math.ceil(maxValue * 1.2) // 增加20%的余量
+          } 
+          // 如果数据范围中等（如引张线，10-100），设置中等范围
+          else if (maxValue < 100) {
+            yMin = Math.floor(minValue * 0.8) // 减少20%
+            yMax = Math.ceil(maxValue * 1.2) // 增加20%
+          }
+          // 如果数据范围很大（如水位，100+），设置较大的范围
+          else {
+            yMin = Math.floor(minValue * 0.9) // 减少10%
+            yMax = Math.ceil(maxValue * 1.1) // 增加10%
+          }
+        }
+      }
+      
       trendChart.setOption({
         title: {
-          text: trendTimeRange.value === 'month' ? '最新一个月数据趋势' : '最近一年数据趋势',
-          subtext: '暂无数据',
+          text: '最新一个月数据趋势',
           left: 'center',
           textStyle: {
             fontSize: 12,
             color: '#a0cfff'
           }
         },
+        tooltip: {
+          trigger: 'axis',
+          formatter: (params) => {
+            const time = params[0].name
+            const value = params[0].value
+            const dataIndex = params[0].dataIndex
+            const originalTime = sortedData[dataIndex]?.measure_time || time
+            return `${originalTime}: ${value}`
+          }
+        },
         xAxis: {
           type: 'category',
-          data: [],
+          data: times,
           axisLabel: {
-            color: '#a0cfff'
+            color: '#a0cfff',
+            rotate: 45
+          },
+          axisLine: {
+            lineStyle: {
+              color: 'rgba(64, 158, 255, 0.3)'
+            }
           }
         },
         yAxis: {
@@ -899,66 +1059,131 @@ const renderTrendChart = async (pointId) => {
           nameTextStyle: {
             color: '#a0cfff'
           },
-          min: 0,
-          max: 100
+          axisLabel: {
+            color: '#a0cfff'
+          },
+          axisLine: {
+            lineStyle: {
+              color: 'rgba(64, 158, 255, 0.3)'
+            }
+          },
+          splitLine: {
+            lineStyle: {
+              color: 'rgba(64, 158, 255, 0.1)'
+            }
+          },
+          min: yMin,
+          max: yMax
         },
         series: [{
           name: '数据趋势',
           type: 'line',
-          data: []
-        }]
-      })
-      return
-    }
-    
-    // 直接使用API返回的数据，按时间排序
-    const sortedData = [...recentData].sort((a, b) => 
-      new Date(a.measure_time) - new Date(b.measure_time)
-    )
-    
-    // 准备图表数据
-    const times = sortedData.map(item => {
-      const date = new Date(item.measure_time)
-      if (trendTimeRange.value === 'month') {
-        // 显示日期
-        return `${date.getMonth() + 1}/${date.getDate()}`
-      } else {
-        // 显示月份
-        return `${date.getMonth() + 1}月`
-      }
-    })
-    
-    const values = sortedData.map(item => parseFloat(item.value.toFixed(2)))
-    
-    // 计算数据范围，设置合理的y轴范围
-    const validValues = values.filter(v => !isNaN(v))
-    const minValue = validValues.length > 0 ? Math.min(...validValues) : 0
-    const maxValue = validValues.length > 0 ? Math.max(...validValues) : 100
-    
-    // 根据数据类型设置y轴范围，支持负数
-    let yMin = 0
-    let yMax = 100
-    
-    if (validValues.length > 0) {
-      // 处理负数情况
-      if (minValue < 0) {
-        // 如果有负数，确保y轴包含负数
-        const range = maxValue - minValue
-        const padding = range * 0.1 // 10%的余量
-        yMin = Math.floor(minValue - padding)
-        yMax = Math.ceil(maxValue + padding)
-      } else {
-        // 没有负数的情况
-        // 如果数据范围很小（如静力水准，小于10），设置较小的范围
-        if (maxValue < 10) {
-          yMin = 0
-          yMax = Math.ceil(maxValue * 1.2) // 增加20%的余量
-        } 
-        // 如果数据范围中等（如引张线，10-100），设置中等范围
-        else if (maxValue < 100) {
-          yMin = Math.floor(minValue * 0.8) // 减少20%
-          yMax = Math.ceil(maxValue * 1.2) // 增加20%
+          data: values,
+          smooth: true,
+          itemStyle: {
+            color: '#6F5EF9'
+          },
+          lineStyle: {
+            width: 2
+          },
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: 'rgba(111, 94, 249, 0.6)' },
+              { offset: 1, color: 'rgba(111, 94, 249, 0.1)' }
+            ])
+          }
+        }],
+        grid: {
+          left: '10%',
+          right: '10%',
+          bottom: '20%',
+          top: '20%',
+          containLabel: true
         }
+      })
+    } else {
+      // 最近一年数据趋势：使用summary API获取月度数据
+      const summaryData = await getMeasurementsSummary({
+        interval: 'month',
+        instrument_id: pointId,
+        end_time: '2024-12-31 23:59:59', // 数据截止到2024年底
+        limit: 12
+      })
+      
+      // 如果没有数据，显示空图表
+      if (!summaryData || summaryData.length === 0) {
+        trendChart.setOption({
+          title: {
+            text: '最近一年数据趋势',
+            subtext: '暂无数据',
+            left: 'center',
+            textStyle: {
+              fontSize: 12,
+              color: '#a0cfff'
+            }
+          },
+          xAxis: {
+            type: 'category',
+            data: [],
+            axisLabel: {
+              color: '#a0cfff'
+            }
+          },
+          yAxis: {
+            type: 'value',
+            name: '测量值',
+            nameTextStyle: {
+              color: '#a0cfff'
+            },
+            min: 0,
+            max: 100
+          },
+          series: [{
+            name: '数据趋势',
+            type: 'line',
+            data: []
+          }]
+        })
+        return
+      }
+      
+      // 准备图表数据
+      const times = summaryData.map(item => {
+        const [year, month] = item.period.split('-')
+        return `${parseInt(month)}月`
+      }).reverse()
+      
+      const values = summaryData.map(item => item.avg_value).reverse()
+      
+      // 计算数据范围，设置合理的y轴范围
+      const validValues = values.filter(v => v !== null && !isNaN(v))
+      const minValue = validValues.length > 0 ? Math.min(...validValues) : 0
+      const maxValue = validValues.length > 0 ? Math.max(...validValues) : 100
+      
+      // 根据数据类型设置y轴范围，支持负数
+      let yMin = 0
+      let yMax = 100
+      
+      if (validValues.length > 0) {
+        // 处理负数情况
+        if (minValue < 0) {
+          // 如果有负数，确保y轴包含负数
+          const range = maxValue - minValue
+          const padding = range * 0.1 // 10%的余量
+          yMin = Math.floor(minValue - padding)
+          yMax = Math.ceil(maxValue + padding)
+        } else {
+          // 没有负数的情况
+          // 如果数据范围很小（如静力水准，小于10），设置较小的范围
+          if (maxValue < 10) {
+            yMin = 0
+            yMax = Math.ceil(maxValue * 1.2) // 增加20%的余量
+          } 
+          // 如果数据范围中等（如引张线，10-100），设置中等范围
+          else if (maxValue < 100) {
+            yMin = Math.floor(minValue * 0.8) // 减少20%
+            yMax = Math.ceil(maxValue * 1.2) // 增加20%
+          }
         // 如果数据范围很大（如水位，100+），设置较大的范围
         else {
           yMin = Math.floor(minValue * 0.9) // 减少10%
@@ -969,7 +1194,7 @@ const renderTrendChart = async (pointId) => {
     
     trendChart.setOption({
       title: {
-        text: trendTimeRange.value === 'month' ? '最新一个月数据趋势' : '最近一年数据趋势',
+        text: '最近一年数据趋势',
         left: 'center',
         textStyle: {
           fontSize: 12,
@@ -981,17 +1206,14 @@ const renderTrendChart = async (pointId) => {
         formatter: (params) => {
           const time = params[0].name
           const value = params[0].value
-          const dataIndex = params[0].dataIndex
-          const originalTime = sortedData[dataIndex]?.measure_time || time
-          return `${originalTime}: ${value}`
+          return `${time}: ${value !== null ? value.toFixed(2) : '无数据'}`
         }
       },
       xAxis: {
         type: 'category',
         data: times,
         axisLabel: {
-          color: '#a0cfff',
-          rotate: trendTimeRange.value === 'month' ? 45 : 0
+          color: '#a0cfff'
         },
         axisLine: {
           lineStyle: {
@@ -1037,18 +1259,21 @@ const renderTrendChart = async (pointId) => {
             { offset: 0, color: 'rgba(111, 94, 249, 0.6)' },
             { offset: 1, color: 'rgba(111, 94, 249, 0.1)' }
           ])
-        }
+        },
+        connectNulls: true // 连接空数据点
       }],
       grid: {
         left: '10%',
         right: '10%',
-        bottom: trendTimeRange.value === 'month' ? '20%' : '15%',
+        bottom: '15%',
         top: '20%',
         containLabel: true
       }
     })
+    }
   } catch (error) {
-    // 如果API失败，显示空图表而不是模拟数据
+    console.error('加载趋势数据失败:', error)
+    // 如果API失败，显示空图表
     trendChart.setOption({
       title: {
         text: trendTimeRange.value === 'month' ? '最新一个月数据趋势' : '最近一年数据趋势',
@@ -1450,48 +1675,37 @@ const loadAndRenderUpstreamChart = async () => {
   try {
     const selectedYear = parseInt(upstreamYear.value)
     
-    // 为每个月份获取数据，确保获取所有数据
+    // 使用改进后的summary API获取数据
+    const summaryData = await getMeasurementsSummary({
+      interval: 'month',
+      instrument_id: '上游',
+      end_time: `${selectedYear}-12-31 23:59:59`,
+      limit: 12
+    })
+    
+    // 准备月份数据
     const months = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月']
-    const monthlyData = {}
+    const monthDataMap = {}
     
     // 初始化月份数据
     months.forEach(month => {
-      monthlyData[month] = { sum: 0, count: 0 }
+      monthDataMap[month] = null
     })
     
-    // 为每个月份获取数据
-    for (let month = 1; month <= 12; month++) {
-      try {
-        const startTime = `${selectedYear}-${String(month).padStart(2, '0')}-01 00:00:00`
-        const endTime = `${selectedYear}-${String(month).padStart(2, '0')}-31 23:59:59`
-        
-        // 获取上游水位数据
-        const monthData = await getMeasurements({
-          type_id: 3, // 水位监测类型
-          instrument_id: '上游',
-          start_time: startTime,
-          end_time: endTime,
-          limit: 100 // 每个月最多100条数据
-        })
-        
-        if (monthData.length > 0) {
-          const monthKey = `${month}月`
-          monthlyData[monthKey].sum = monthData.reduce((sum, item) => sum + item.value, 0)
-          monthlyData[monthKey].count = monthData.length
-        }
-      } catch (error) {
-        console.error(`获取${selectedYear}年${month}月上游水位数据失败:`, error)
+    // 填充API返回的数据
+    summaryData.forEach(item => {
+      // 解析period，格式为"YYYY-MM"
+      const [year, month] = item.period.split('-')
+      const monthKey = `${parseInt(month)}月`
+      
+      // 只处理当前年份的数据
+      if (parseInt(year) === selectedYear && monthDataMap.hasOwnProperty(monthKey)) {
+        monthDataMap[monthKey] = item.avg_value
       }
-    }
+    })
     
     // 准备图表数据
-    const data = months.map(month => {
-      if (monthlyData[month].count > 0) {
-        const avg = monthlyData[month].sum / monthlyData[month].count
-        return parseFloat(avg.toFixed(2))
-      }
-      return null // 没有数据
-    })
+    const data = months.map(month => monthDataMap[month])
     
     // 检查是否有任何数据
     const hasData = data.some(v => v !== null)
@@ -1553,7 +1767,7 @@ const loadAndRenderUpstreamChart = async () => {
         formatter: (params) => {
           const month = params[0].name
           const value = params[0].value
-          return value !== null ? `${month}: ${value} m` : `${month}: 无数据`
+          return value !== null ? `${month}: ${value.toFixed(2)} m` : `${month}: 无数据`
         }
       },
       xAxis: {
@@ -1663,48 +1877,37 @@ const loadAndRenderDownstreamChart = async () => {
   try {
     const selectedYear = parseInt(downstreamYear.value)
     
-    // 为每个月份获取数据，确保获取所有数据
+    // 使用改进后的summary API获取数据
+    const summaryData = await getMeasurementsSummary({
+      interval: 'month',
+      instrument_id: '下游',
+      end_time: `${selectedYear}-12-31 23:59:59`,
+      limit: 12
+    })
+    
+    // 准备月份数据
     const months = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月']
-    const monthlyData = {}
+    const monthDataMap = {}
     
     // 初始化月份数据
     months.forEach(month => {
-      monthlyData[month] = { sum: 0, count: 0 }
+      monthDataMap[month] = null
     })
     
-    // 为每个月份获取数据
-    for (let month = 1; month <= 12; month++) {
-      try {
-        const startTime = `${selectedYear}-${String(month).padStart(2, '0')}-01 00:00:00`
-        const endTime = `${selectedYear}-${String(month).padStart(2, '0')}-31 23:59:59`
-        
-        // 获取下游水位数据
-        const monthData = await getMeasurements({
-          type_id: 3, // 水位监测类型
-          instrument_id: '下游',
-          start_time: startTime,
-          end_time: endTime,
-          limit: 100 // 每个月最多100条数据
-        })
-        
-        if (monthData.length > 0) {
-          const monthKey = `${month}月`
-          monthlyData[monthKey].sum = monthData.reduce((sum, item) => sum + item.value, 0)
-          monthlyData[monthKey].count = monthData.length
-        }
-      } catch (error) {
-        console.error(`获取${selectedYear}年${month}月下游水位数据失败:`, error)
+    // 填充API返回的数据
+    summaryData.forEach(item => {
+      // 解析period，格式为"YYYY-MM"
+      const [year, month] = item.period.split('-')
+      const monthKey = `${parseInt(month)}月`
+      
+      // 只处理当前年份的数据
+      if (parseInt(year) === selectedYear && monthDataMap.hasOwnProperty(monthKey)) {
+        monthDataMap[monthKey] = item.avg_value
       }
-    }
+    })
     
     // 准备图表数据
-    const data = months.map(month => {
-      if (monthlyData[month].count > 0) {
-        const avg = monthlyData[month].sum / monthlyData[month].count
-        return parseFloat(avg.toFixed(2))
-      }
-      return null // 没有数据
-    })
+    const data = months.map(month => monthDataMap[month])
     
     // 检查是否有任何数据
     const hasData = data.some(v => v !== null)
@@ -1766,7 +1969,7 @@ const loadAndRenderDownstreamChart = async () => {
         formatter: (params) => {
           const month = params[0].name
           const value = params[0].value
-          return value !== null ? `${month}: ${value} m` : `${month}: 无数据`
+          return value !== null ? `${month}: ${value.toFixed(2)} m` : `${month}: 无数据`
         }
       },
       xAxis: {
@@ -1870,9 +2073,13 @@ const loadAndRenderDownstreamChart = async () => {
   }
 }
 
-// 监听年份变化
-watch([upstreamYear, downstreamYear], () => {
+// 监听上游年份变化
+watch(upstreamYear, () => {
   loadAndRenderUpstreamChart()
+})
+
+// 监听下游年份变化
+watch(downstreamYear, () => {
   loadAndRenderDownstreamChart()
 })
 

@@ -224,6 +224,8 @@ def get_measurements_summary():
     """获取数据摘要（按时间间隔分组）"""
     interval = request.args.get('interval', 'month')  # day, week, month, year
     type_id = request.args.get('type_id', type=int)
+    instrument_id = request.args.get('instrument_id')
+    end_time = request.args.get('end_time')  # 结束时间，用于确定查询的时间范围
     limit = request.args.get('limit', default=12, type=int)
     
     # 根据间隔确定日期格式
@@ -254,6 +256,29 @@ def get_measurements_summary():
     if type_id:
         query += ' AND m.type_id = ?'
         params.append(type_id)
+    
+    if instrument_id:
+        query += ' AND m.instrument_id = ?'
+        params.append(instrument_id)
+    
+    if end_time:
+        # 根据间隔计算开始时间
+        if interval == 'day':
+            # 查询最近limit天的数据
+            query += ' AND m.measure_time <= ?'
+            params.append(end_time)
+        elif interval == 'week':
+            # 查询最近limit周的数据
+            query += ' AND m.measure_time <= ?'
+            params.append(end_time)
+        elif interval == 'month':
+            # 查询最近limit个月的数据
+            query += ' AND m.measure_time <= ?'
+            params.append(end_time)
+        else:  # year
+            # 查询最近limit年的数据
+            query += ' AND m.measure_time <= ?'
+            params.append(end_time)
     
     query += '''
         GROUP BY period

@@ -51,6 +51,8 @@ export async function getStatistics() {
  * @param {Object} params - 查询参数
  * @param {string} params.interval - 时间间隔（day/week/month/year，默认month）
  * @param {number} params.type_id - 监测类型ID（可选）
+ * @param {string} params.instrument_id - 仪器ID（可选）
+ * @param {string} params.end_time - 结束时间（可选，用于确定查询的时间范围）
  * @param {number} params.limit - 返回记录数（可选，默认12）
  * @returns {Promise} 数据摘要
  */
