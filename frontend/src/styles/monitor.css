@@ -514,7 +514,7 @@
   top: 90px;
   left: 410px; /* 与最新监测数据窗口相同的x轴位置 */
   width: 300px;
-  height: 320px;
+  height: 380px; /* 增加高度，为分块交互信息提供更多空间 */
 }
 
 .model-controls {

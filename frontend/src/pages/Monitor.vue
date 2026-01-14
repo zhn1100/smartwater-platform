@@ -469,6 +469,7 @@ let pointEntities = new Map()
 const hoveredBlock = ref('')
 const selectedBlock = ref('')
 const selectedInstrumentIdFromBlock = ref('')
+const highlightedComponent = ref('')
 let mouseMoveHandler = null
 let clickHandler = null
 let highlightedFeature = null
@@ -851,8 +852,6 @@ const renderTrendChart = async (pointId) => {
   if (!trendChart) return
   
   try {
-    console.log('开始加载趋势数据，仪器ID:', pointId)
-    
     // 数据只到2024年，所以我们应该从2024年往前计算
     const endDate = new Date('2024-12-31') // 数据截止到2024年底
     const startDate = new Date('2024-12-31')
@@ -867,8 +866,6 @@ const renderTrendChart = async (pointId) => {
     const startTime = startDate.toISOString().replace('T', ' ').substring(0, 19)
     const endTime = endDate.toISOString().replace('T', ' ').substring(0, 19)
     
-    console.log('时间范围:', startTime, '到', endTime)
-    
     // 获取数据 - API会自动按时间排序
     const recentData = await getMeasurements({
       instrument_id: pointId,
@@ -877,11 +874,8 @@ const renderTrendChart = async (pointId) => {
       limit: 100 // 获取最多100条数据
     })
     
-    console.log('API返回数据:', recentData)
-    
     // 如果没有数据，显示空图表而不是模拟数据
     if (!recentData || recentData.length === 0) {
-      console.warn('API返回空数据，显示空图表')
       trendChart.setOption({
         title: {
           text: trendTimeRange.value === 'month' ? '最新一个月数据趋势' : '最近一年数据趋势',
@@ -922,8 +916,6 @@ const renderTrendChart = async (pointId) => {
       new Date(a.measure_time) - new Date(b.measure_time)
     )
     
-    console.log('排序后数据:', sortedData)
-    
     // 准备图表数据
     const times = sortedData.map(item => {
       const date = new Date(item.measure_time)
@@ -938,15 +930,10 @@ const renderTrendChart = async (pointId) => {
     
     const values = sortedData.map(item => parseFloat(item.value.toFixed(2)))
     
-    console.log('图表数据 - 时间:', times)
-    console.log('图表数据 - 数值:', values)
-    
     // 计算数据范围，设置合理的y轴范围
     const validValues = values.filter(v => !isNaN(v))
     const minValue = validValues.length > 0 ? Math.min(...validValues) : 0
     const maxValue = validValues.length > 0 ? Math.max(...validValues) : 100
-    
-    console.log('数据范围 - 最小值:', minValue, '最大值:', maxValue)
     
     // 根据数据类型设置y轴范围，支持负数
     let yMin = 0
@@ -979,8 +966,6 @@ const renderTrendChart = async (pointId) => {
         }
       }
     }
-    
-    console.log('y轴范围 - 最小值:', yMin, '最大值:', yMax)
     
     trendChart.setOption({
       title: {
@@ -1062,10 +1047,7 @@ const renderTrendChart = async (pointId) => {
         containLabel: true
       }
     })
-    
-    console.log('图表渲染完成')
   } catch (error) {
-    console.error('加载趋势数据失败:', error)
     // 如果API失败，显示空图表而不是模拟数据
     trendChart.setOption({
       title: {
@@ -1106,7 +1088,18 @@ const selectPoint = (point) => {
   selectedPointId.value = point.id
   selectedPoint.value = point
   loadPointMeasurements(point.instrument_id)
-  flyToPoint(point)
+  
+  // 根据仪器ID获取对应的模型分块名字
+  const blockNames = getBlockNamesFromInstrumentId(point.instrument_id)
+  if (blockNames.length > 0 && selectedModel.value === 'dam3') {
+    // 使用第一个匹配的分块进行高亮
+    const blockName = blockNames[0]
+    highlightComponent(blockName)
+  } else {
+    // 如果没有找到对应的分块，重置高亮
+    resetHighlight()
+    highlightedComponent.value = ''
+  }
 }
 
 // Cesium相关方法
@@ -1201,97 +1194,26 @@ const setupModelBlockInteraction = () => {
   
   // 直接设置基础交互
   setupBasicInteraction()
-  
-  // 记录模型信息用于调试
-  const model = currentModelEntity.model
-  if (model && model._runtime && model._runtime._model) {
-    const cesiumModel = model._runtime._model
-    console.log('Cesium模型对象:', cesiumModel)
-    
-    // 检查是否有节点信息
-    if (cesiumModel._nodesByName) {
-      console.log('模型节点列表:', Object.keys(cesiumModel._nodesByName))
-      console.log('节点数量:', Object.keys(cesiumModel._nodesByName).length)
-    }
-  }
 }
 
 // 设置基础交互
 const setupBasicInteraction = () => {
-  // 鼠标移动处理器：悬停高亮
+  // 鼠标移动处理器：悬停显示
   mouseMoveHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
   mouseMoveHandler.setInputAction((movement) => {
     const pick = viewer.scene.pick(movement.endPosition)
     
-    // 1. 验证pick及其detail结构
     if (Cesium.defined(pick) && pick.detail && pick.detail.node) {
-      console.log('pick对象:', pick)
-      console.log('pick.detail:', pick.detail)
-      console.log('pick.detail.node:', pick.detail.node)
-      
-      // 2. 关键：根据你的日志，属性名是_name而不是name
       const rawName = pick.detail.node._name || pick.detail.node.name
       
       if (rawName) {
-        // 确保是字符串类型，防止getNode报错
         const objectName = String(rawName)
-        console.log('✅ 成功识别到子物体:', objectName)
-        
-        // 更新悬停显示
         hoveredBlock.value = objectName
-        
-        // 3. 执行高亮操作
-        try {
-          // 移除之前的高亮
-          if (highlightedFeature) {
-            highlightedFeature.color = Cesium.Color.WHITE
-            highlightedFeature = null
-          }
-          
-          // 高亮当前节点
-          if (pick.primitive && pick.primitive instanceof Cesium.Model) {
-            const model = pick.primitive
-            if (model.getNode) {
-              // 确保传递给getNode的是字符串
-              const targetNode = model.getNode(objectName)
-              
-              if (targetNode) {
-                // 尝试设置节点颜色
-                try {
-                  targetNode.color = Cesium.Color.YELLOW.withAlpha(0.5)
-                  highlightedFeature = targetNode
-                } catch (colorError) {
-                  console.log('设置节点颜色失败，尝试其他高亮方式:', colorError)
-                  // 记录节点信息用于后续处理
-                  highlightedFeature = targetNode
-                }
-              }
-            }
-          }
-        } catch (error) {
-          console.error('高亮执行失败:', error)
-        }
       } else {
-        // 没有节点名称信息
-        console.log('❌ pick.detail.node._name未定义')
         hoveredBlock.value = '模型表面'
-        
-        // 移除高亮
-        if (highlightedFeature) {
-          highlightedFeature.color = Cesium.Color.WHITE
-          highlightedFeature = null
-        }
       }
     } else {
-      // 没选中任何物体或没有detail信息
-      console.log('❌ pick未定义或没有detail或没有node')
       hoveredBlock.value = ''
-      
-      // 移除高亮
-      if (highlightedFeature) {
-        highlightedFeature.color = Cesium.Color.WHITE
-        highlightedFeature = null
-      }
     }
   }, Cesium.ScreenSpaceEventType.MOUSE_MOVE)
   
@@ -1300,20 +1222,11 @@ const setupBasicInteraction = () => {
   clickHandler.setInputAction((movement) => {
     const pick = viewer.scene.pick(movement.position)
     
-    // 1. 验证pick及其detail结构
     if (Cesium.defined(pick) && pick.detail && pick.detail.node) {
-      console.log('点击pick对象:', pick)
-      console.log('点击pick.detail:', pick.detail)
-      
-      // 2. 关键：根据你的日志，属性名是_name而不是name
       const rawName = pick.detail.node._name || pick.detail.node.name
       
       if (rawName) {
-        // 确保是字符串类型，防止getNode报错
         const objectName = String(rawName)
-        console.log('✅ 点击子物体名称:', objectName)
-        
-        // 更新选中显示
         selectedBlock.value = objectName
         
         // 根据分块名字获取仪器ID
@@ -1334,14 +1247,10 @@ const setupBasicInteraction = () => {
           ElMessage.warning(`找到分块: ${objectName}，但未找到对应的仪器映射`)
         }
       } else {
-        // 没有节点名称信息
-        console.log('❌ 点击pick.detail.node._name未定义')
         selectedBlock.value = '点击了模型表面'
         ElMessage.info('点击了模型表面，请尝试点击模型的不同部分')
       }
     } else {
-      // 没选中任何物体或没有detail信息
-      console.log('❌ 点击pick未定义或没有detail或没有node')
       selectedBlock.value = '点击了模型表面'
       ElMessage.info('点击了模型表面，请尝试点击模型的不同部分')
     }
@@ -1371,179 +1280,129 @@ const removeModelBlockInteraction = () => {
   hoveredBlock.value = ''
 }
 
-// 处理模型悬停
-const handleModelHover = (picked) => {
-  if (!picked || !picked.primitive) {
-    // 没有悬停在模型上
-    hoveredBlock.value = ''
+// 高亮组件函数
+const highlightComponent = (componentName) => {
+  if (!viewer || !currentModelEntity) return
+  
+  // 获取模型对象
+  const model = currentModelEntity.model
+  if (!model || !model._runtime || !model._runtime._model) return
+  
+  const cesiumModel = model._runtime._model
+  
+  // 如果传入空值或再次点击当前项，则重置
+  if (!componentName || highlightedComponent.value === componentName) {
+    resetHighlight()
+    highlightedComponent.value = ''
     return
   }
   
-  // 尝试获取模型节点信息
-  const blockName = getModelNodeName(picked)
+  // 保存当前高亮的组件
+  highlightedComponent.value = componentName
   
-  if (blockName) {
-    hoveredBlock.value = blockName
-  } else {
-    hoveredBlock.value = '模型表面'
-  }
-}
-
-// 处理模型点击
-const handleModelClick = (picked) => {
-  if (!picked || !picked.primitive) {
-    return
-  }
-  
-  // 尝试获取模型节点信息
-  const blockName = getModelNodeName(picked)
-  
-  if (blockName) {
-    selectedBlock.value = blockName
+  try {
+    // 1. 开启轮廓线
+    cesiumModel.silhouetteSize = 5.0
+    cesiumModel.silhouetteColor = Cesium.Color.YELLOW
     
-    // 根据分块名字获取仪器ID
-    const instrumentId = getInstrumentIdFromBlockName(blockName)
-    selectedInstrumentIdFromBlock.value = instrumentId
+    // 2. 设置透视效果
+    viewer.scene.globe.depthTestAgainstTerrain = false
     
-    if (instrumentId) {
-      // 找到对应的测点
-      const point = instruments.value.find(p => p.instrument_id === instrumentId)
-      if (point) {
-        // 选择该测点并加载数据
-        selectPoint(point)
-        ElMessage.success(`已选择分块: ${blockName} → 仪器: ${instrumentId}`)
-      } else {
-        ElMessage.warning(`找到分块: ${blockName}，但未找到对应的测点仪器: ${instrumentId}`)
-      }
-    } else {
-      ElMessage.warning(`找到分块: ${blockName}，但未找到对应的仪器映射`)
-    }
-  } else {
-    selectedBlock.value = '点击了模型表面'
-    ElMessage.info('点击了模型表面，请尝试点击模型的不同部分')
-  }
-}
-
-// 从pick结果中获取模型节点名字
-const getModelNodeName = (picked) => {
-  if (!picked || !picked.primitive) {
-    return null
-  }
-  
-  const feature = picked.primitive
-  
-  // 检查是否是Model对象
-  if (feature._nodesByName) {
-    // 这是一个Model对象，尝试获取点击的节点
-    console.log('Model对象，节点列表:', Object.keys(feature._nodesByName))
-    
-    // 尝试直接访问pick的详细信息
-    console.log('pick详细信息:', picked)
-    
-    // 检查pick是否有id属性
-    if (picked.id) {
-      console.log('pick.id:', picked.id)
-      console.log('pick.id类型:', typeof picked.id)
-      
-      // 尝试从id中提取节点信息
-      if (typeof picked.id === 'object') {
-        // 检查id对象是否有name属性
-        if (picked.id._name) {
-          return String(picked.id._name)
-        } else if (picked.id.name) {
-          return String(picked.id.name)
-        } else if (picked.id.id) {
-          return String(picked.id.id)
+    // 3. 使用model.style进行局部高亮
+    if (cesiumModel.style) {
+      // 创建样式：目标节点亮色，其他节点暗色
+      const style = new Cesium.Cesium3DTileStyle({
+        color: {
+          conditions: [
+            [`\${name} === '${componentName}'`, "color('lime')"],
+            ["true", "color('rgba(128, 128, 128, 0.3)')"]
+          ]
         }
-      } else if (typeof picked.id === 'string') {
-        return picked.id
+      })
+      cesiumModel.style = style
+    } else {
+      // 如果style不可用，尝试直接修改节点颜色
+      if (cesiumModel._sceneGraph && cesiumModel._sceneGraph._runtimeNodes) {
+        const runtimeNodes = cesiumModel._sceneGraph._runtimeNodes
+        let found = false
+        
+        // 遍历所有节点
+        for (const node of runtimeNodes) {
+          const nodeName = node._name || node.name
+          if (!nodeName) continue
+          
+          if (nodeName === componentName) {
+            // 目标节点设置为亮色
+            try {
+              node.color = Cesium.Color.LIME
+              found = true
+            } catch (error) {
+              console.warn('无法设置节点颜色:', error)
+            }
+          } else {
+            // 其他节点设置为暗色
+            try {
+              node.color = Cesium.Color.GRAY.withAlpha(0.3)
+            } catch (error) {
+              // 忽略错误
+            }
+          }
+        }
+        
+        if (!found) {
+          console.warn(`未找到组件: ${componentName}`)
+          resetHighlight()
+          highlightedComponent.value = ''
+        }
       }
     }
     
-    // 检查pick是否有其他属性
-    if (picked.primitive._name) {
-      return String(picked.primitive._name)
-    } else if (picked.primitive.name) {
-      return String(picked.primitive.name)
-    }
-    
-    // 如果无法获取具体节点，尝试从节点列表中查找可能相关的节点
-    // 查找包含"EX"、"IP"、"TC"等关键词的节点（这些可能是仪器相关的节点）
-    const nodeNames = Object.keys(feature._nodesByName)
-    const instrumentNodes = nodeNames.filter(name => 
-      name.includes('EX') || name.includes('IP') || name.includes('TC') || 
-      name.includes('P') || name.includes('UPR') || name.includes('UP')
-    )
-    
-    if (instrumentNodes.length > 0) {
-      // 返回第一个仪器相关节点作为示例
-      return instrumentNodes[0]
-    }
-    
-    // 返回第一个节点作为示例
-    if (nodeNames.length > 0) {
-      return nodeNames[0]
-    }
-    
-    // 如果无法获取具体节点，返回模型信息
-    return `模型 (${nodeNames.length}个节点)`
+  } catch (error) {
+    console.error('高亮组件失败:', error)
+    resetHighlight()
+    highlightedComponent.value = ''
   }
-  
-  // 如果不是Model对象，尝试其他方式获取名字
-  return getBlockNameFromFeature(feature)
 }
 
-// 从Cesium特征中获取分块名字（简化版）
-const getBlockNameFromFeature = (feature) => {
-  if (!feature) {
-    return null
-  }
+// 重置高亮
+const resetHighlight = () => {
+  if (!viewer || !currentModelEntity) return
   
-  // 尝试不同的方式获取分块名字
-  let blockName = null
+  const model = currentModelEntity.model
+  if (!model || !model._runtime || !model._runtime._model) return
   
-  // 方式1: 检查是否有name属性
-  if (feature._name) {
-    if (typeof feature._name === 'object') {
-      try {
-        blockName = JSON.stringify(feature._name)
-      } catch {
-        blockName = String(feature._name)
+  const cesiumModel = model._runtime._model
+  
+  try {
+    // 关闭轮廓线
+    cesiumModel.silhouetteSize = 0.0
+    
+    // 重置透视效果
+    viewer.scene.globe.depthTestAgainstTerrain = true
+    
+    // 重置样式
+    if (cesiumModel.style) {
+      cesiumModel.style = new Cesium.Cesium3DTileStyle({
+        color: "color('white')"
+      })
+    }
+    
+    // 重置节点颜色
+    if (cesiumModel._sceneGraph && cesiumModel._sceneGraph._runtimeNodes) {
+      const runtimeNodes = cesiumModel._sceneGraph._runtimeNodes
+      for (const node of runtimeNodes) {
+        try {
+          node.color = Cesium.Color.WHITE
+        } catch (error) {
+          // 忽略错误
+        }
       }
-    } else {
-      blockName = String(feature._name)
     }
+  } catch (error) {
+    console.error('重置高亮失败:', error)
   }
-  
-  // 方式2: 检查是否有name属性
-  if (!blockName && feature.name) {
-    if (typeof feature.name === 'object') {
-      try {
-        blockName = JSON.stringify(feature.name)
-      } catch {
-        blockName = String(feature.name)
-      }
-    } else {
-      blockName = String(feature.name)
-    }
-  }
-  
-  // 方式3: 从feature的id属性获取
-  if (!blockName && feature.id) {
-    blockName = String(feature.id)
-  }
-  
-  // 如果blockName是对象，尝试转换为字符串
-  if (blockName && typeof blockName === 'object') {
-    try {
-      blockName = JSON.stringify(blockName)
-    } catch {
-      blockName = String(blockName)
-    }
-  }
-  
-  return blockName
 }
+
 
 const addPointsToCesium = () => {
   if (!viewer) return
@@ -1558,103 +1417,32 @@ const addPointsToCesium = () => {
   // 测点显示将在以后解决
 }
 
-const flyToPoint = (point) => {
-  if (!viewer) return
-  
-  // 根据仪器ID获取对应的模型分块名字
-  const blockNames = getBlockNamesFromInstrumentId(point.instrument_id)
-  
-  if (blockNames.length > 0 && currentModelEntity && selectedModel.value === 'dam3') {
-    // 如果有对应的模型分块，显示信息
-    const blockName = blockNames[0] // 使用第一个匹配的分块
-    
-    // 更新显示
-    hoveredBlock.value = blockName
-    selectedBlock.value = blockName
-    selectedInstrumentIdFromBlock.value = point.instrument_id
-    
-    // 飞向模型，但调整视角以便更好地观察
-    // 使用模型的位置，但调整高度和角度
-    const modelPosition = Cesium.Cartesian3.fromDegrees(118.7460, 32.0600, 30.0)
-    
-    // 根据分块类型调整视角
-    let height = 500 // 默认高度
-    let pitch = -60 // 默认俯角
-    
-    if (blockName.includes('EX')) {
-      // EX系列分块：稍微低一点，角度更陡
-      height = 300
-      pitch = -75
-    } else if (blockName.includes('IP')) {
-      // IP系列分块：中等高度
-      height = 400
-      pitch = -70
-    }
-    
-    // 飞向模型上方，向下看
-    viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(118.7460, 32.0600, height),
-      orientation: {
-        heading: Cesium.Math.toRadians(0),
-        pitch: Cesium.Math.toRadians(pitch), // 向下看的角度
-        roll: 0
-      },
-      duration: 1.5,
-      offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(pitch), 100)
-    })
-    
-    ElMessage.success(`已定位到仪器: ${point.instrument_id} (对应分块: ${blockName})`)
-  } else {
-    // 如果没有对应的模型分块，或者不是dam3模型，飞向默认位置
-    viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(118.7460, 32.0600, 1000),
-      orientation: {
-        heading: Cesium.Math.toRadians(0),
-        pitch: Cesium.Math.toRadians(-45),
-        roll: 0
-      },
-      duration: 1.5
-    })
-    
-    ElMessage.info(`已选择仪器: ${point.instrument_id}`)
-  }
-}
-
+// 简化resetView函数
 const resetView = () => {
   if (!viewer) return
   
-  viewer.camera.flyTo({
+  viewer.camera.setView({
     destination: Cesium.Cartesian3.fromDegrees(118.7460, 32.0600, 1000),
     orientation: {
       heading: Cesium.Math.toRadians(0),
       pitch: Cesium.Math.toRadians(-45),
       roll: 0
-    },
-    duration: 1.5
+    }
   })
 }
 
+// 简化toggleFullscreen函数
 const toggleFullscreen = () => {
-  isFullscreen.value = !isFullscreen.value
-  if (isFullscreen.value) {
-    document.documentElement.requestFullscreen()
+  const container = document.querySelector('.monitor-container')
+  if (!document.fullscreenElement) {
+    container.requestFullscreen().catch(err => {
+      console.error('全屏失败:', err)
+    })
   } else {
     document.exitFullscreen()
   }
 }
-
-// 新增图表方法
-const initAdditionalCharts = () => {
-  if (upstreamChartEl.value) {
-    upstreamChart = echarts.init(upstreamChartEl.value)
-    loadAndRenderUpstreamChart()
-  }
-  
-  if (downstreamChartEl.value) {
-    downstreamChart = echarts.init(downstreamChartEl.value)
-    loadAndRenderDownstreamChart()
-  }
-}
+const flyToPoint = (point) => {}
 
 const loadAndRenderUpstreamChart = async () => {
   if (!upstreamChart) return
@@ -2094,6 +1882,27 @@ watch(trendTimeRange, () => {
     renderTrendChart(selectedPoint.value.instrument_id)
   }
 })
+
+// 初始化新增图表
+const initAdditionalCharts = () => {
+  // 初始化上游水位图表
+  if (upstreamChartEl.value) {
+    if (upstreamChart) {
+      upstreamChart.dispose()
+    }
+    upstreamChart = echarts.init(upstreamChartEl.value)
+    loadAndRenderUpstreamChart()
+  }
+  
+  // 初始化下游水位图表
+  if (downstreamChartEl.value) {
+    if (downstreamChart) {
+      downstreamChart.dispose()
+    }
+    downstreamChart = echarts.init(downstreamChartEl.value)
+    loadAndRenderDownstreamChart()
+  }
+}
 
 // 数据导出功能
 const exportData = async () => {
