@@ -161,6 +161,20 @@
   max-height: calc(100% - 60px);
   overflow-y: auto;
   height: calc(100% - 60px);
+  transition: all 0.3s ease;
+}
+
+/* 窗口收起时的样式 */
+.floating-window.collapsed {
+  height: 60px !important; /* 只显示标题栏的高度 */
+}
+
+.floating-window.collapsed .window-content {
+  display: none; /* 隐藏内容 */
+  padding: 0;
+  height: 0;
+  max-height: 0;
+  overflow: hidden;
 }
 
 /* 左侧窗口 - 监测概览 */

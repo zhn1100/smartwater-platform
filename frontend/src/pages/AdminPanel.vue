@@ -139,6 +139,10 @@
                 <el-icon><i class="el-icon-plus"></i></el-icon>
                 新增记录
               </el-button>
+              <el-button type="success" size="small" @click="openImportDialog">
+                <el-icon><i class="el-icon-upload"></i></el-icon>
+                CSV导入
+              </el-button>
               <el-button size="small" @click="refreshMeasurements">
                 <el-icon><i class="el-icon-refresh"></i></el-icon>
                 刷新
@@ -167,6 +171,18 @@
                     :value="inst.instrument_id"
                   />
                 </el-select>
+              </el-form-item>
+              <el-form-item label="时间范围">
+                <el-date-picker
+                  v-model="filter.dateRange"
+                  type="daterange"
+                  range-separator="至"
+                  start-placeholder="开始日期"
+                  end-placeholder="结束日期"
+                  value-format="YYYY-MM-DD"
+                  :clearable="true"
+                  @change="handleDateRangeChange"
+                />
               </el-form-item>
               <el-form-item>
                 <el-button type="primary" @click="searchMeasurements">查询</el-button>
@@ -378,6 +394,57 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- CSV导入对话框 -->
+    <el-dialog
+      v-model="importDialog.visible"
+      title="CSV数据导入"
+      width="600px"
+    >
+      <div class="import-instructions">
+        <h4>导入说明：</h4>
+        <ul>
+          <li>CSV文件必须包含以下列：<code>type_id</code>, <code>instrument_id</code>, <code>measure_time</code>, <code>value</code></li>
+          <li><code>type_id</code>: 监测类型ID（整数）</li>
+          <li><code>instrument_id</code>: 仪器ID（字符串，如"上游"、"下游"）</li>
+          <li><code>measure_time</code>: 测量时间（格式: YYYY-MM-DD HH:MM:SS）</li>
+          <li><code>value</code>: 测量值（浮点数）</li>
+          <li>可选列：<code>water_level</code>（水位值，浮点数）</li>
+        </ul>
+      </div>
+      
+      <el-upload
+        class="csv-upload"
+        drag
+        action="#"
+        :auto-upload="false"
+        :on-change="handleFileChange"
+        :show-file-list="true"
+        accept=".csv"
+      >
+        <el-icon class="el-icon--upload"><i class="el-icon-upload"></i></el-icon>
+        <div class="el-upload__text">将CSV文件拖到此处，或<em>点击上传</em></div>
+        <div class="el-upload__tip" slot="tip">只能上传CSV文件，且不超过10MB</div>
+      </el-upload>
+      
+      <div v-if="importPreview.length > 0" class="import-preview">
+        <h4>数据预览（前5行）：</h4>
+        <el-table :data="importPreview" size="small" height="200">
+          <el-table-column prop="type_id" label="监测类型ID" width="100" />
+          <el-table-column prop="instrument_id" label="仪器编号" width="120" />
+          <el-table-column prop="measure_time" label="测量时间" width="150" />
+          <el-table-column prop="value" label="测量值" width="100" />
+          <el-table-column prop="water_level" label="水位值" width="100" />
+        </el-table>
+      </div>
+      
+      <template #footer>
+        <el-button @click="importDialog.visible = false">取消</el-button>
+        <el-button type="primary" @click="importCSVData" :loading="importDialog.loading" :disabled="importData.length === 0">
+          导入数据
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -423,13 +490,24 @@ const instruments = ref([])
 const loading = ref(false)
 const filter = reactive({
   type_id: null,
-  instrument_id: null
+  instrument_id: null,
+  dateRange: null,
+  start_time: null,
+  end_time: null
 })
 const pagination = reactive({
   current: 1,
   size: 50,
   total: 0
 })
+
+// CSV导入相关
+const importDialog = reactive({
+  visible: false,
+  loading: false
+})
+const importData = ref([])
+const importPreview = ref([])
 
 // 用户管理
 const users = ref([])
@@ -748,6 +826,12 @@ const loadMeasurements = async () => {
     if (filter.instrument_id) {
       params.instrument_id = filter.instrument_id
     }
+    if (filter.start_time) {
+      params.start_time = filter.start_time
+    }
+    if (filter.end_time) {
+      params.end_time = filter.end_time
+    }
     
     const data = await getMeasurements(params)
     measurements.value = data
@@ -813,6 +897,17 @@ const handleSizeChange = (size) => {
 const handleCurrentChange = (page) => {
   pagination.current = page
   loadMeasurements()
+}
+
+// 处理日期范围变化
+const handleDateRangeChange = (dateRange) => {
+  if (dateRange && dateRange.length === 2) {
+    filter.start_time = `${dateRange[0]} 00:00:00`
+    filter.end_time = `${dateRange[1]} 23:59:59`
+  } else {
+    filter.start_time = null
+    filter.end_time = null
+  }
 }
 
 const openAddMeasurement = () => {
@@ -1019,6 +1114,148 @@ const deleteUser = async (id) => {
   } catch (error) {
     console.error('删除用户失败:', error)
     ElMessage.error(`删除失败: ${error.message}`)
+  }
+}
+
+// CSV导入相关函数
+const openImportDialog = () => {
+  importDialog.visible = true
+  importData.value = []
+  importPreview.value = []
+}
+
+const handleFileChange = (file) => {
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    try {
+      const csvContent = e.target.result
+      const lines = csvContent.split('\n')
+      
+      if (lines.length === 0) {
+        ElMessage.warning('CSV文件为空')
+        return
+      }
+      
+      // 解析CSV标题行
+      const headers = lines[0].split(',').map(h => h.trim())
+      
+      // 检查必需列
+      const requiredColumns = ['type_id', 'instrument_id', 'measure_time', 'value']
+      const missingColumns = requiredColumns.filter(col => !headers.includes(col))
+      
+      if (missingColumns.length > 0) {
+        ElMessage.error(`CSV文件缺少必需列: ${missingColumns.join(', ')}`)
+        return
+      }
+      
+      // 解析数据行
+      const data = []
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim()
+        if (!line) continue
+        
+        const values = line.split(',').map(v => v.trim())
+        const row = {}
+        
+        headers.forEach((header, index) => {
+          if (index < values.length) {
+            // 根据列名进行类型转换
+            if (header === 'type_id') {
+              row[header] = parseInt(values[index]) || 0
+            } else if (header === 'value' || header === 'water_level') {
+              row[header] = parseFloat(values[index]) || 0
+            } else {
+              row[header] = values[index]
+            }
+          }
+        })
+        
+        // 验证必需字段
+        if (row.type_id && row.instrument_id && row.measure_time && row.value !== undefined) {
+          data.push(row)
+        }
+      }
+      
+      if (data.length === 0) {
+        ElMessage.warning('CSV文件中没有有效数据')
+        return
+      }
+      
+      importData.value = data
+      importPreview.value = data.slice(0, 5) // 预览前5行
+      
+      ElMessage.success(`成功解析 ${data.length} 条数据`)
+    } catch (error) {
+      console.error('解析CSV文件失败:', error)
+      ElMessage.error('解析CSV文件失败，请检查文件格式')
+    }
+  }
+  
+  reader.readAsText(file.raw)
+}
+
+const importCSVData = async () => {
+  if (importData.value.length === 0) {
+    ElMessage.warning('没有数据可导入')
+    return
+  }
+  
+  importDialog.loading = true
+  
+  try {
+    let successCount = 0
+    let errorCount = 0
+    
+    // 分批导入数据，避免一次性请求过大
+    const batchSize = 50
+    for (let i = 0; i < importData.value.length; i += batchSize) {
+      const batch = importData.value.slice(i, i + batchSize)
+      
+      // 为每批数据创建Promise数组
+      const promises = batch.map(async (item) => {
+        try {
+          const formData = {
+            type_id: item.type_id,
+            instrument_id: item.instrument_id,
+            measure_time: item.measure_time,
+            value: item.value
+          }
+          
+          if (item.water_level !== undefined) {
+            formData.water_level = item.water_level
+          }
+          
+          await createMeasurement(formData)
+          successCount++
+        } catch (error) {
+          console.error(`导入数据失败:`, item, error)
+          errorCount++
+        }
+      })
+      
+      // 等待当前批次完成
+      await Promise.all(promises)
+      
+      // 显示进度
+      const progress = Math.min(i + batchSize, importData.value.length)
+      console.log(`导入进度: ${progress}/${importData.value.length}`)
+    }
+    
+    // 显示导入结果
+    if (errorCount === 0) {
+      ElMessage.success(`成功导入 ${successCount} 条数据`)
+    } else {
+      ElMessage.warning(`导入完成: ${successCount} 条成功, ${errorCount} 条失败`)
+    }
+    
+    // 关闭对话框并刷新数据
+    importDialog.visible = false
+    loadMeasurements()
+  } catch (error) {
+    console.error('导入数据失败:', error)
+    ElMessage.error('导入数据失败')
+  } finally {
+    importDialog.loading = false
   }
 }
 
